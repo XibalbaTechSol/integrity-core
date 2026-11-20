@@ -30,8 +30,12 @@ from web3 import Web3
 from integrity_sdk import chain
 
 REGISTRATION_TYPE = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1"
+# ERC-8004 feedback files carry no `type` field; AIS data rides in an `ais` extension
+# object (spec: "Other fields MAY"). This URI versions that extension, not the ERC.
+AIS_FEEDBACK_EXTENSION = "https://integrity.xibalba.solutions/ext/erc8004-ais-feedback-v1"
 BASE_SEPOLIA_CHAIN_ID = 84532
 BASE_SEPOLIA_ERC8004_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
+BASE_SEPOLIA_ERC8004_REPUTATION_REGISTRY = "0x8004B663056A597Dffe9eCcC1965A193B7388713"
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 _DID_PREFIX = "did:integrity:"
 
@@ -105,6 +109,144 @@ ERC8004_IDENTITY_REGISTRY_ABI: list[dict[str, Any]] = [
     },
 ]
 
+# Canonical ABI for external ERC-8004 Reputation Registry deployments.
+ERC8004_REPUTATION_REGISTRY_ABI: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "getIdentityRegistry",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
+        "type": "function",
+        "name": "giveFeedback",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "value", "type": "int128"},
+            {"name": "valueDecimals", "type": "uint8"},
+            {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
+            {"name": "endpoint", "type": "string"},
+            {"name": "feedbackURI", "type": "string"},
+            {"name": "feedbackHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "type": "function",
+        "name": "revokeFeedback",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "feedbackIndex", "type": "uint64"},
+        ],
+        "outputs": [],
+    },
+    {
+        "type": "function",
+        "name": "appendResponse",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddress", "type": "address"},
+            {"name": "feedbackIndex", "type": "uint64"},
+            {"name": "responseURI", "type": "string"},
+            {"name": "responseHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "type": "function",
+        "name": "getSummary",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddresses", "type": "address[]"},
+            {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
+        ],
+        "outputs": [
+            {"name": "count", "type": "uint64"},
+            {"name": "summaryValue", "type": "int128"},
+            {"name": "summaryValueDecimals", "type": "uint8"},
+        ],
+    },
+    {
+        "type": "function",
+        "name": "readFeedback",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddress", "type": "address"},
+            {"name": "feedbackIndex", "type": "uint64"},
+        ],
+        "outputs": [
+            {"name": "value", "type": "int128"},
+            {"name": "valueDecimals", "type": "uint8"},
+            {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
+            {"name": "isRevoked", "type": "bool"},
+        ],
+    },
+    {
+        "type": "function",
+        "name": "readAllFeedback",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddresses", "type": "address[]"},
+            {"name": "tag1", "type": "string"},
+            {"name": "tag2", "type": "string"},
+            {"name": "includeRevoked", "type": "bool"},
+        ],
+        "outputs": [
+            {"name": "clients", "type": "address[]"},
+            {"name": "feedbackIndexes", "type": "uint64[]"},
+            {"name": "values", "type": "int128[]"},
+            {"name": "valueDecimals", "type": "uint8[]"},
+            {"name": "tag1s", "type": "string[]"},
+            {"name": "tag2s", "type": "string[]"},
+            {"name": "revokedStatuses", "type": "bool[]"},
+        ],
+    },
+    {
+        "type": "function",
+        "name": "getClients",
+        "stateMutability": "view",
+        "inputs": [{"name": "agentId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "address[]"}],
+    },
+    {
+        "type": "function",
+        "name": "getLastIndex",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "clientAddress", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint64"}],
+    },
+    {
+        "type": "event",
+        "name": "NewFeedback",
+        "inputs": [
+            {"name": "agentId", "type": "uint256", "indexed": True},
+            {"name": "clientAddress", "type": "address", "indexed": True},
+            {"name": "feedbackIndex", "type": "uint64", "indexed": False},
+            {"name": "value", "type": "int128", "indexed": False},
+            {"name": "valueDecimals", "type": "uint8", "indexed": False},
+            {"name": "indexedTag1", "type": "string", "indexed": True},
+            {"name": "tag1", "type": "string", "indexed": False},
+            {"name": "tag2", "type": "string", "indexed": False},
+            {"name": "endpoint", "type": "string", "indexed": False},
+            {"name": "feedbackURI", "type": "string", "indexed": False},
+            {"name": "feedbackHash", "type": "bytes32", "indexed": False},
+        ],
+    },
+]
+
 
 class Erc8004BridgeError(RuntimeError):
     """Raised when an Oracle or ERC-8004 registration/linking step fails."""
@@ -140,6 +282,27 @@ class Erc8004Binding:
     wallet_confined: bool = False
 
 
+@dataclass(frozen=True)
+class Erc8004FeedbackItem:
+    client_address: str
+    feedback_index: int
+    value: int
+    value_decimals: int
+    tag1: str
+    tag2: str
+    is_revoked: bool
+
+
+@dataclass(frozen=True)
+class Erc8004ReputationSummary:
+    agent_id: int
+    count: int
+    summary_value: int
+    summary_value_decimals: int
+    clients: list[str]
+    feedbacks: list[Erc8004FeedbackItem]
+
+
 def caip10_registry(chain_id: int, registry_address: str) -> str:
     """CAIP-10 identifier for an ERC-8004 Identity Registry, matching `erc8004::caip10` in the Oracle."""
     if chain_id <= 0:
@@ -162,6 +325,10 @@ def build_registration_document(
     mcp_endpoint: Optional[str] = None,
     a2a_endpoint: Optional[str] = None,
     a2a_version: Optional[str] = "0.3.0",
+    oasf_skills: Optional[list[str]] = None,
+    oasf_domains: Optional[list[str]] = None,
+    ens: Optional[str] = None,
+    web_endpoint: Optional[str] = None,
     x402_support: bool = False,
     active: bool = True,
     supported_trust: Optional[list[str]] = None,
@@ -180,6 +347,19 @@ def build_registration_document(
         if a2a_version and a2a_version.strip():
             a2a_entry["version"] = a2a_version.strip()
         services.append(a2a_entry)
+    if oasf_skills or oasf_domains:
+        oasf_entry: dict[str, Any] = {
+            "name": "OASF",
+            "endpoint": "https://oasf.agntcy.org",
+            "version": "0.8",
+            "skills": [s.strip() for s in oasf_skills if s.strip()] if oasf_skills else [],
+            "domains": [d.strip() for d in oasf_domains if d.strip()] if oasf_domains else [],
+        }
+        services.append(oasf_entry)
+    if ens and ens.strip():
+        services.append({"name": "ENS", "endpoint": ens.strip(), "version": "v1"})
+    if web_endpoint and web_endpoint.strip():
+        services.append({"name": "web", "endpoint": web_endpoint.strip()})
 
     caip10 = caip10_registry(chain_id, registry_address)
     tok = int(token_id) if isinstance(token_id, int) or (isinstance(token_id, str) and token_id.isdigit()) else str(token_id)
@@ -255,6 +435,10 @@ def register_and_link_erc8004(
     mcp_endpoint: Optional[str] = None,
     a2a_endpoint: Optional[str] = None,
     a2a_version: Optional[str] = "0.3.0",
+    oasf_skills: Optional[list[str]] = None,
+    oasf_domains: Optional[list[str]] = None,
+    ens: Optional[str] = None,
+    web_endpoint: Optional[str] = None,
     x402_support: bool = False,
     active: bool = True,
     supported_trust: Optional[list[str]] = None,
@@ -299,6 +483,10 @@ def register_and_link_erc8004(
         mcp_endpoint=mcp_endpoint,
         a2a_endpoint=a2a_endpoint,
         a2a_version=a2a_version,
+        oasf_skills=oasf_skills,
+        oasf_domains=oasf_domains,
+        ens=ens,
+        web_endpoint=web_endpoint,
         x402_support=x402_support,
         active=active,
         supported_trust=supported_trust,
@@ -328,6 +516,10 @@ def register_and_link_erc8004(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=oasf_skills,
+            oasf_domains=oasf_domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
             active=active,
             supported_trust=supported_trust,
@@ -440,18 +632,289 @@ def get_erc8004_from_oracle(
     return payload
 
 
+def caip10_account(chain_id: int, address: str) -> str:
+    """CAIP-10 formatted account address, e.g. eip155:84532:0x..."""
+    if chain_id <= 0:
+        raise ValueError(f"chain_id must be positive, got {chain_id}")
+    addr = address.strip()
+    if not Web3.is_address(addr):
+        raise ValueError(f"invalid address: {address!r}")
+    return f"eip155:{chain_id}:{addr.lower()}"
+
+
+def build_ais_feedback_document(
+    *,
+    agent_id: int | str,
+    client_address: str,
+    chain_id: int = BASE_SEPOLIA_CHAIN_ID,
+    identity_registry_address: str = BASE_SEPOLIA_ERC8004_REGISTRY,
+    ais_score_bps: int,
+    evidence_root: Optional[str] = None,
+    window_end: Optional[int] = None,
+    factors: Optional[dict[str, float]] = None,
+    grpo_advantage: Optional[float] = None,
+    dpo_preference: Optional[str] = None,
+    created_at: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    tag1: str = "ais",
+    tag2: str = "oracle",
+    mcp_tool: Optional[str] = None,
+    a2a_context_id: Optional[str] = None,
+    a2a_task_id: Optional[str] = None,
+    proof_of_payment: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Build canonical ERC-8004 off-chain feedback document embedding AIS evaluation metrics."""
+    if not (0 <= ais_score_bps <= 10000):
+        raise ValueError(f"ais_score_bps must be in range 0..10000, got {ais_score_bps}")
+    agent_id_int = int(agent_id)
+    if agent_id_int <= 0:
+        raise ValueError(f"agent_id must be a positive integer, got {agent_id}")
+
+    if not created_at:
+        import datetime
+        created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    doc: dict[str, Any] = {
+        "agentRegistry": caip10_registry(chain_id, identity_registry_address),
+        "agentId": agent_id_int,
+        "clientAddress": caip10_account(chain_id, client_address),
+        "createdAt": created_at,
+        "value": ais_score_bps,
+        "valueDecimals": 2,  # 9850 / 10^2 = 98.50%
+        "tag1": tag1,
+        "tag2": tag2,
+    }
+
+    if endpoint:
+        doc["endpoint"] = endpoint
+
+    ais_payload: dict[str, Any] = {
+        "schema": AIS_FEEDBACK_EXTENSION,
+        "version": "v2",
+        "scoreBps": ais_score_bps,
+        "scorePercent": round(ais_score_bps / 100.0, 2),
+    }
+    if evidence_root:
+        ais_payload["evidenceRoot"] = evidence_root
+    if window_end is not None:
+        ais_payload["windowEnd"] = window_end
+    if factors:
+        ais_payload["factors"] = factors
+    if grpo_advantage is not None:
+        ais_payload["grpoAdvantage"] = grpo_advantage
+    if dpo_preference:
+        ais_payload["dpoPreference"] = dpo_preference
+
+    doc["ais"] = ais_payload
+
+    if mcp_tool:
+        doc["mcp"] = {"tool": mcp_tool}
+    if a2a_context_id or a2a_task_id:
+        doc["a2a"] = {}
+        if a2a_context_id:
+            doc["a2a"]["contextId"] = a2a_context_id
+        if a2a_task_id:
+            doc["a2a"]["taskId"] = a2a_task_id
+    if proof_of_payment:
+        doc["proofOfPayment"] = proof_of_payment
+
+    return doc
+
+
+def encode_feedback_data_uri(doc: dict[str, Any]) -> tuple[str, bytes]:
+    """Serialize an off-chain feedback dict into a base64 data URI and calculate its Keccak-256 hash."""
+    body = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    b64 = base64.b64encode(body).decode("ascii")
+    uri = f"data:application/json;base64,{b64}"
+    keccak_hash = Web3.keccak(body)
+    return uri, keccak_hash
+
+
+def read_agent_reputation(
+    w3: Web3,
+    reputation_registry_address: str,
+    agent_id: int | str,
+    *,
+    client_addresses: Optional[list[str]] = None,
+    tag1: str = "",
+    tag2: str = "",
+    include_revoked: bool = False,
+) -> Erc8004ReputationSummary:
+    """Read on-chain ERC-8004 reputation summary and feedback items for an agent."""
+    agent_id_int = int(agent_id)
+    rep_contract = w3.eth.contract(
+        address=Web3.to_checksum_address(reputation_registry_address),
+        abi=ERC8004_REPUTATION_REGISTRY_ABI,
+    )
+
+    all_clients = [Web3.to_checksum_address(c) for c in rep_contract.functions.getClients(agent_id_int).call()]
+    filter_clients = [Web3.to_checksum_address(c) for c in client_addresses] if client_addresses else all_clients
+
+    feedbacks: list[Erc8004FeedbackItem] = []
+    summary_count = 0
+    summary_val = 0
+    summary_decimals = 0
+
+    if filter_clients:
+        try:
+            summary_count, summary_val, summary_decimals = rep_contract.functions.getSummary(
+                agent_id_int, filter_clients, tag1, tag2
+            ).call()
+        except Exception:
+            summary_count, summary_val, summary_decimals = 0, 0, 0
+
+        try:
+            res = rep_contract.functions.readAllFeedback(
+                agent_id_int, filter_clients, tag1, tag2, include_revoked
+            ).call()
+            # clients, feedbackIndexes, values, valueDecimals, tag1s, tag2s, revokedStatuses
+            for client, idx, val, decimals, t1, t2, revoked in zip(*res):
+                feedbacks.append(
+                    Erc8004FeedbackItem(
+                        client_address=client,
+                        feedback_index=int(idx),
+                        value=int(val),
+                        value_decimals=int(decimals),
+                        tag1=t1,
+                        tag2=t2,
+                        is_revoked=bool(revoked),
+                    )
+                )
+        except Exception:
+            pass
+
+    return Erc8004ReputationSummary(
+        agent_id=agent_id_int,
+        count=summary_count,
+        summary_value=summary_val,
+        summary_value_decimals=summary_decimals,
+        clients=all_clients,
+        feedbacks=feedbacks,
+    )
+
+
+def give_ais_feedback(
+    w3: Web3,
+    signer_account: Any,
+    reputation_registry_address: str,
+    agent_id: int | str,
+    *,
+    ais_score_bps: int,
+    chain_id: int = BASE_SEPOLIA_CHAIN_ID,
+    identity_registry_address: str = BASE_SEPOLIA_ERC8004_REGISTRY,
+    evidence_root: Optional[str] = None,
+    factors: Optional[dict[str, float]] = None,
+    endpoint: Optional[str] = None,
+    tag1: str = "ais",
+    tag2: str = "oracle",
+    proof_of_payment: Optional[dict[str, Any]] = None,
+) -> tuple[str, str, bytes]:
+    """Construct AIS off-chain feedback document, calculate hash, and submit `giveFeedback` tx to ReputationRegistry."""
+    agent_id_int = int(agent_id)
+    doc = build_ais_feedback_document(
+        agent_id=agent_id_int,
+        client_address=signer_account.address,
+        chain_id=chain_id,
+        identity_registry_address=identity_registry_address,
+        ais_score_bps=ais_score_bps,
+        evidence_root=evidence_root,
+        factors=factors,
+        endpoint=endpoint,
+        tag1=tag1,
+        tag2=tag2,
+        proof_of_payment=proof_of_payment,
+    )
+    uri, f_hash = encode_feedback_data_uri(doc)
+
+    # ERC-8004: the feedback submitter MUST NOT be the agent owner. Fail before spending gas.
+    id_contract = w3.eth.contract(
+        address=Web3.to_checksum_address(identity_registry_address),
+        abi=ERC8004_IDENTITY_REGISTRY_ABI,
+    )
+    owner = id_contract.functions.ownerOf(agent_id_int).call()
+    if Web3.to_checksum_address(owner) == Web3.to_checksum_address(signer_account.address):
+        raise Erc8004BridgeError(
+            "give_feedback", None, f"signer {signer_account.address} owns agent {agent_id_int}; self-feedback is forbidden"
+        )
+
+    rep_contract = w3.eth.contract(
+        address=Web3.to_checksum_address(reputation_registry_address),
+        abi=ERC8004_REPUTATION_REGISTRY_ABI,
+    )
+
+    give_call = rep_contract.functions.giveFeedback(
+        agent_id_int,
+        ais_score_bps,
+        2,  # valueDecimals
+        tag1,
+        tag2,
+        endpoint or "",
+        uri,
+        f_hash,
+    )
+
+    _, tx_hash = chain._send_signed(
+        w3,
+        signer_account,
+        lambda nonce: give_call.build_transaction(
+            {"from": signer_account.address, "nonce": nonce, "chainId": chain_id}
+        ),
+        action="erc8004_give_feedback",
+    )
+    return tx_hash.hex(), uri, f_hash
+
+
+def ais_score_from_reputation(
+    summary: Erc8004ReputationSummary,
+    trusted_scorers: list[str],
+    *,
+    tag1: str = "ais",
+) -> Optional[int]:
+    """Latest AIS score (bps, 0..10000) posted by a trusted scorer, or None.
+
+    Unfiltered ERC-8004 summaries mix heterogeneous tags (0-100 ratings, Glicko
+    ratings, latency in ms...) and are Sybil-exposed. AIS is only read from `tag1`
+    feedback with valueDecimals=2 submitted by an explicitly trusted scorer address.
+    """
+    trusted = {Web3.to_checksum_address(a) for a in trusted_scorers}
+    if not trusted:
+        raise ValueError("trusted_scorers must be non-empty (Sybil resistance)")
+    best: Optional[Erc8004FeedbackItem] = None
+    for f in summary.feedbacks:
+        if f.is_revoked or f.tag1 != tag1 or f.value_decimals != 2:
+            continue
+        if Web3.to_checksum_address(f.client_address) not in trusted:
+            continue
+        if not (0 <= f.value <= 10000):
+            continue
+        if best is None or f.feedback_index > best.feedback_index:
+            best = f
+    return best.value if best else None
+
+
 __all__ = [
+    "ais_score_from_reputation",
     "BASE_SEPOLIA_CHAIN_ID",
     "BASE_SEPOLIA_ERC8004_REGISTRY",
+    "BASE_SEPOLIA_ERC8004_REPUTATION_REGISTRY",
     "ERC8004_IDENTITY_REGISTRY_ABI",
+    "ERC8004_REPUTATION_REGISTRY_ABI",
     "Erc8004Binding",
     "Erc8004BridgeError",
+    "Erc8004FeedbackItem",
+    "Erc8004ReputationSummary",
+    "AIS_FEEDBACK_EXTENSION",
     "REGISTRATION_TYPE",
+    "build_ais_feedback_document",
     "build_registration_document",
+    "caip10_account",
     "caip10_registry",
+    "encode_feedback_data_uri",
     "encode_registration_data_uri",
     "get_erc8004_from_oracle",
+    "give_ais_feedback",
     "link_erc8004_with_oracle",
+    "read_agent_reputation",
     "register_and_link_erc8004",
     "resolve_confined_actor",
 ]

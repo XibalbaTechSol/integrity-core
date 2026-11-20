@@ -11,15 +11,19 @@ Commands:
   Integrity Oracle (`POST /v1/agent/{did}/erc8004`).
 - `integrity erc8004 status`: Query the agent's verified ERC-8004 discovery record from the
   Integrity Oracle (`GET /v1/agent/{did}/erc8004`).
+- `integrity erc8004 feedback`: Post an on-chain AIS reputation feedback item to ReputationRegistry
+  referencing an off-chain canonical data URI document committed via Keccak-256 hash.
+- `integrity erc8004 reputation`: Query on-chain reputation summary and decode AIS score.
+- `integrity erc8004 query`: Discover registered agents or read AIS history via Agent0 Subgraph.
 """
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
-from integrity_sdk import erc8004
+from integrity_sdk import agent0_subgraph, erc8004
 
 from . import chain, config, identity, output, wallet
 
@@ -57,6 +61,10 @@ def erc8004_card(
     mcp_endpoint: Optional[str] = typer.Option(None, "--mcp", help="Optional public MCP service endpoint"),
     a2a_endpoint: Optional[str] = typer.Option(None, "--a2a", help="Optional public A2A service endpoint"),
     a2a_version: str = typer.Option("0.3.0", "--a2a-version", help="A2A protocol version"),
+    skills: Optional[List[str]] = typer.Option(None, "--skill", help="OASF skill capability (repeatable)"),
+    domains: Optional[List[str]] = typer.Option(None, "--domain", help="OASF domain capability (repeatable)"),
+    ens: Optional[str] = typer.Option(None, "--ens", help="ENS domain (e.g. agent.eth)"),
+    web_endpoint: Optional[str] = typer.Option(None, "--web", help="Web service URL"),
     x402_support: bool = typer.Option(False, "--x402", help="Advertise HTTP x402 payment support"),
     json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ) -> None:
@@ -75,6 +83,10 @@ def erc8004_card(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=skills,
+            oasf_domains=domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
         )
         data_uri, sha256_hex = erc8004.encode_registration_data_uri(doc)
@@ -196,6 +208,10 @@ def erc8004_publish(
     mcp_endpoint: Optional[str] = typer.Option(None, "--mcp", help="Optional public MCP service endpoint"),
     a2a_endpoint: Optional[str] = typer.Option(None, "--a2a", help="Optional public A2A service endpoint"),
     a2a_version: str = typer.Option("0.3.0", "--a2a-version", help="A2A protocol version"),
+    skills: Optional[List[str]] = typer.Option(None, "--skill", help="OASF skill capability (repeatable)"),
+    domains: Optional[List[str]] = typer.Option(None, "--domain", help="OASF domain capability (repeatable)"),
+    ens: Optional[str] = typer.Option(None, "--ens", help="ENS domain (e.g. agent.eth)"),
+    web_endpoint: Optional[str] = typer.Option(None, "--web", help="Web service URL"),
     x402_support: bool = typer.Option(False, "--x402", help="Advertise HTTP x402 payment support"),
     oracle_url: Optional[str] = typer.Option(None, "--oracle-url", help="Integrity Oracle base URL"),
     rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="EVM RPC endpoint"),
@@ -235,6 +251,10 @@ def erc8004_publish(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=skills,
+            oasf_domains=domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
         )
     except erc8004.Erc8004BridgeError as exc:
@@ -262,3 +282,228 @@ def erc8004_publish(
         f"wallet={binding.agent_wallet_address or 'none'} confined={binding.wallet_confined}"
     )
     rep.result({"binding": dataclasses.asdict(binding), "tx": tx_hash, "oracle_url": oracle_url})
+
+
+@erc8004_app.command("feedback")
+def erc8004_feedback(
+    token_id: int = typer.Option(..., "--token-id", help="Target agent token ID (uint256)"),
+    score_bps: int = typer.Option(..., "--score-bps", min=0, max=10000, help="AIS score in basis points (0..10000, 9850 = 98.50%)"),
+    evidence_root: Optional[str] = typer.Option(None, "--evidence-root", help="Hex Merkle root or provenance commitment"),
+    reputation_registry: str = typer.Option(
+        erc8004.BASE_SEPOLIA_ERC8004_REPUTATION_REGISTRY,
+        "--reputation-registry",
+        help="ERC-8004 Reputation Registry contract address",
+    ),
+    identity_registry: str = typer.Option(
+        erc8004.BASE_SEPOLIA_ERC8004_REGISTRY,
+        "--identity-registry",
+        help="ERC-8004 Identity Registry contract address",
+    ),
+    chain_id: int = typer.Option(erc8004.BASE_SEPOLIA_CHAIN_ID, "--chain-id", help="EVM chain ID"),
+    tag1: str = typer.Option("ais", "--tag1", help="Primary taxonomy tag (default: 'ais')"),
+    tag2: str = typer.Option("oracle", "--tag2", help="Secondary taxonomy tag (default: 'oracle')"),
+    endpoint: Optional[str] = typer.Option(None, "--endpoint", help="Evaluated agent endpoint"),
+    identity_name: str = typer.Option("default", "--identity", help="Client signer identity profile"),
+    rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="EVM RPC endpoint"),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
+) -> None:
+    """Submit an on-chain AIS reputation rating referencing an off-chain canonical data URI document."""
+    rep = output.Reporter("erc8004", "feedback", json_mode=json_output)
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+
+    try:
+        signer = wallet.generate_or_load_evm_wallet(identity_name)
+    except wallet.WalletPasswordNotSet as exc:
+        rep.fail(output.EXIT_NO, str(exc), code="WALLET_PASSWORD")
+
+    w3 = chain.get_w3(rpc_url)
+    try:
+        tx_hash, uri, f_hash = erc8004.give_ais_feedback(
+            w3,
+            signer,
+            reputation_registry,
+            token_id,
+            ais_score_bps=score_bps,
+            chain_id=chain_id,
+            identity_registry_address=identity_registry,
+            evidence_root=evidence_root,
+            endpoint=endpoint,
+            tag1=tag1,
+            tag2=tag2,
+        )
+    except erc8004.Erc8004BridgeError as exc:
+        rep.fail(output.EXIT_NO, exc.detail, code="FORBIDDEN")
+    except Exception as exc:  # noqa: BLE001
+        exit_code = output.exit_code_for_chain_error(exc)
+        rep.fail(
+            exit_code,
+            f"giveFeedback failed: {exc}",
+            code="REVERT" if exit_code == output.EXIT_REVERT else "CHAIN",
+        )
+
+    rep.info(f"submitted AIS feedback for agent={token_id} score={score_bps}bps tx={tx_hash}")
+    rep.result(
+        {
+            "schema": "integrity.cli.erc8004.feedback.v1",
+            "agent_id": token_id,
+            "score_bps": score_bps,
+            "score_percent": round(score_bps / 100.0, 2),
+            "tx_hash": tx_hash,
+            "feedback_uri": uri,
+            "feedback_hash": f_hash.hex() if hasattr(f_hash, "hex") else str(f_hash),
+            "client_address": signer.address,
+        }
+    )
+
+
+@erc8004_app.command("reputation")
+def erc8004_reputation(
+    token_id: int = typer.Option(..., "--token-id", help="Target agent token ID (uint256)"),
+    trusted_scorer: Optional[List[str]] = typer.Option(
+        None, "--trusted-scorer", help="Trusted scorer EVM address (repeatable, for Sybil resistance)"
+    ),
+    reputation_registry: str = typer.Option(
+        erc8004.BASE_SEPOLIA_ERC8004_REPUTATION_REGISTRY,
+        "--reputation-registry",
+        help="ERC-8004 Reputation Registry contract address",
+    ),
+    tag1: str = typer.Option("ais", "--tag1", help="Primary taxonomy tag filter"),
+    rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="EVM RPC endpoint"),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
+) -> None:
+    """Read on-chain ERC-8004 reputation summary and filter verified AIS score."""
+    rep = output.Reporter("erc8004", "reputation", json_mode=json_output)
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+    w3 = chain.get_w3(rpc_url)
+
+    try:
+        summary = erc8004.read_agent_reputation(
+            w3,
+            reputation_registry,
+            token_id,
+            tag1=tag1,
+        )
+    except Exception as exc:  # noqa: BLE001
+        exit_code = output.exit_code_for_chain_error(exc)
+        rep.fail(exit_code, f"reading reputation failed: {exc}", code="CHAIN")
+
+    ais_bps: Optional[int] = None
+    if trusted_scorer:
+        try:
+            ais_bps = erc8004.ais_score_from_reputation(summary, trusted_scorer, tag1=tag1)
+        except ValueError as exc:
+            rep.fail(output.EXIT_NO, str(exc), code="SCORER_FILTER")
+
+    rep.result(
+        {
+            "schema": "integrity.cli.erc8004.reputation.v1",
+            "agent_id": token_id,
+            "count": summary.count,
+            "summary_value": summary.summary_value,
+            "summary_value_decimals": summary.summary_value_decimals,
+            "ais_score_bps": ais_bps,
+            "ais_score_percent": round(ais_bps / 100.0, 2) if ais_bps is not None else None,
+            "clients": summary.clients,
+            "feedbacks_count": len(summary.feedbacks),
+        }
+    )
+
+
+@erc8004_app.command("subgraph")
+def erc8004_subgraph(
+    token_id: Optional[int] = typer.Option(None, "--token-id", help="Agent token ID to inspect"),
+    chain_id: int = typer.Option(erc8004.BASE_SEPOLIA_CHAIN_ID, "--chain-id", help="Chain ID (default: 84532)"),
+    trusted_scorer: Optional[List[str]] = typer.Option(
+        None, "--trusted-scorer", help="Trusted scorer EVM address for AIS history filter"
+    ),
+    integrity_only: bool = typer.Option(False, "--integrity-only", help="Only list agents with did:integrity: backlink"),
+    first: int = typer.Option(20, "--first", help="Maximum records to return"),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
+) -> None:
+    """Query Agent0 Subgraph for indexed ERC-8004 agent passports or AIS feedback history."""
+    rep = output.Reporter("erc8004", "subgraph", json_mode=json_output)
+
+    try:
+        if token_id is not None:
+            agent = agent0_subgraph.get_agent(chain_id, token_id)
+            history = (
+                agent0_subgraph.ais_feedback_history(chain_id, token_id, trusted_scorer, first=first)
+                if trusted_scorer
+                else []
+            )
+            rep.result(
+                {
+                    "schema": "integrity.cli.erc8004.subgraph.agent.v1",
+                    "agent": dataclasses.asdict(agent) if agent else None,
+                    "ais_history": [dataclasses.asdict(h) for h in history],
+                }
+            )
+            return
+
+        agents = agent0_subgraph.list_agents(chain_id, first=first, integrity_only=integrity_only)
+        rep.result(
+            {
+                "schema": "integrity.cli.erc8004.subgraph.list.v1",
+                "count": len(agents),
+                "agents": [dataclasses.asdict(a) for a in agents],
+            }
+        )
+    except agent0_subgraph.Agent0SubgraphError as exc:
+        rep.fail(output.EXIT_UNVERIFIED, str(exc), code="SUBGRAPH_ERROR")
+
+
+@erc8004_app.command("search")
+def erc8004_search(
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Search text in agent name, description, DID, or skills"),
+    skill: Optional[str] = typer.Option(None, "--skill", help="Filter by OASF skill (substring match)"),
+    domain: Optional[str] = typer.Option(None, "--domain", help="Filter by OASF domain (substring match)"),
+    min_ais: Optional[int] = typer.Option(None, "--min-ais", min=0, max=10000, help="Minimum AIS reputation score (bps, 0..10000)"),
+    trusted_scorer: Optional[List[str]] = typer.Option(
+        None, "--trusted-scorer", help="Trusted scorer EVM address (repeatable)"
+    ),
+    mcp: bool = typer.Option(False, "--mcp", help="Require an MCP endpoint"),
+    a2a: bool = typer.Option(False, "--a2a", help="Require an A2A endpoint"),
+    x402: bool = typer.Option(False, "--x402", help="Require x402 payment support"),
+    confined_wallet: bool = typer.Option(False, "--confined-wallet", help="Require a bound agentWallet"),
+    integrity_only: bool = typer.Option(False, "--integrity-only", help="Only agents with did:integrity: backlink"),
+    active_only: bool = typer.Option(False, "--active", help="Only active agents"),
+    min_feedback: int = typer.Option(0, "--min-feedback", min=0, help="Minimum total feedback count"),
+    order_by: str = typer.Option("ais", "--order-by", help="Sort order: ais, totalFeedback, or lastActivity"),
+    chain_id: int = typer.Option(erc8004.BASE_SEPOLIA_CHAIN_ID, "--chain-id", help="Chain ID (default: 84532)"),
+    first: int = typer.Option(20, "--first", help="Maximum results to return"),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
+) -> None:
+    """Search ERC-8004 agents by AIS reputation, OASF skills, protocol endpoints, and Integrity binding."""
+    rep = output.Reporter("erc8004", "search", json_mode=json_output)
+
+    try:
+        results = agent0_subgraph.search_agents(
+            chain_id,
+            query_text=query,
+            skill=skill,
+            domain=domain,
+            min_ais_bps=min_ais,
+            trusted_scorers=trusted_scorer,
+            mcp_required=mcp,
+            a2a_required=a2a,
+            x402_required=x402,
+            confined_wallet_only=confined_wallet,
+            integrity_only=integrity_only,
+            active_only=active_only,
+            min_feedback=min_feedback,
+            order_by=order_by,
+            first=first,
+        )
+    except (agent0_subgraph.Agent0SubgraphError, ValueError) as exc:
+        code = "SUBGRAPH_ERROR" if isinstance(exc, agent0_subgraph.Agent0SubgraphError) else "INVALID_FILTER"
+        rep.fail(output.EXIT_UNVERIFIED if isinstance(exc, agent0_subgraph.Agent0SubgraphError) else output.EXIT_NO, str(exc), code=code)
+
+    rep.info(f"found {len(results)} matching ERC-8004 agents on chain {chain_id}")
+    rep.result(
+        {
+            "schema": "integrity.cli.erc8004.search.v1",
+            "chain_id": chain_id,
+            "count": len(results),
+            "results": [dataclasses.asdict(r) for r in results],
+        }
+    )
