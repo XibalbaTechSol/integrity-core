@@ -23,6 +23,8 @@ contract DeployLocalTest is Test {
 
         assertEq(hook.protocolFloor(), 0);
         assertEq(address(registry.integrityHook()), address(hook));
+        assertEq(address(registry.accountVerifier()), address(deployScript.safeAccountVerifier()));
+        assertEq(address(deployScript.integrityGuard()), address(deployScript.safeAccountVerifier().integrityGuard()));
 
         address anyEOA = makeAddr("anyEOA");
         assertFalse(registry.isGoverned(anyEOA));

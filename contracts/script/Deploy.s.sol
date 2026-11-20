@@ -36,6 +36,9 @@ import {ActionAnchor} from "../src/trust/ActionAnchor.sol";
 import {IntegrityHook, IAgentRegistryView, IAISRegistryView, IStakeVaultView} from "../src/wallet/IntegrityHook.sol";
 import {IOperationContext} from "../src/wallet/IOperationContext.sol";
 import {IAccountVerifier} from "../src/wallet/IAccountVerifier.sol";
+import {SafeOperationContext} from "../src/wallet/SafeOperationContext.sol";
+import {SafeAccountVerifier} from "../src/wallet/SafeAccountVerifier.sol";
+import {IntegrityGuard} from "../src/wallet/IntegrityGuard.sol";
 import {FailClosedOperationContext, FailClosedAccountVerifier} from "../src/wallet/FailClosedAdapters.sol";
 
 /// @title Deploy
@@ -96,9 +99,15 @@ contract Deploy is Script {
     HIPAAGuardrailRegistry guardrailRegistry;
     EHRGate ehrGate;
 
+    address internal constant CANONICAL_SAFE_SINGLETON = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    address internal constant CANONICAL_SAFE_7579 = 0x7579EE8307284F293B1927136486880611F20002;
+
     IntegrityHook public integrityHook;
     IOperationContext public operationContext;
     IAccountVerifier public accountVerifier;
+    SafeOperationContext public safeOperationContext;
+    SafeAccountVerifier public safeAccountVerifier;
+    IntegrityGuard public integrityGuard;
 
     ReputationRegistry reputationRegistryImpl;
     Slasher slasherImpl;
@@ -276,9 +285,9 @@ contract Deploy is Script {
         rewardRegistry.grantRole(rewardRegistry.NOTIFIER_ROLE(), address(aisRegistry));
         aisRegistry.grantRole(aisRegistry.SCORER_ROLE(), oracleSigner);
 
-        // Fail-closed adapters for IntegrityHook and AgentRegistry v3
-        operationContext = new FailClosedOperationContext();
-        accountVerifier = new FailClosedAccountVerifier();
+        // Production adapters for IntegrityHook and AgentRegistry v3
+        safeOperationContext = new SafeOperationContext(deployer);
+        operationContext = safeOperationContext;
 
         integrityHook = new IntegrityHook(
             deployer,
@@ -289,6 +298,16 @@ contract Deploy is Script {
             0,
             7 days
         );
+
+        integrityGuard = new IntegrityGuard(safeOperationContext, integrityHook, CANONICAL_SAFE_7579);
+        safeOperationContext.setIntegrityGuard(address(integrityGuard));
+
+        safeAccountVerifier = new SafeAccountVerifier(
+            CANONICAL_SAFE_SINGLETON,
+            CANONICAL_SAFE_7579,
+            address(integrityGuard)
+        );
+        accountVerifier = safeAccountVerifier;
 
         agentRegistry.setIntegrityHook(address(integrityHook));
         agentRegistry.setAccountVerifier(accountVerifier);
@@ -468,8 +487,11 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "integrityHook", address(integrityHook));
         vm.serializeAddress(singletons, "OperationContext", address(operationContext));
         vm.serializeAddress(singletons, "operationContext", address(operationContext));
+        vm.serializeAddress(singletons, "SafeOperationContext", address(safeOperationContext));
         vm.serializeAddress(singletons, "AccountVerifier", address(accountVerifier));
         vm.serializeAddress(singletons, "accountVerifier", address(accountVerifier));
+        vm.serializeAddress(singletons, "SafeAccountVerifier", address(safeAccountVerifier));
+        vm.serializeAddress(singletons, "IntegrityGuard", address(integrityGuard));
         string memory singletonsJson = vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
 
         string memory cloneTemplates = "cloneTemplates";

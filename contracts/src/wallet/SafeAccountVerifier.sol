@@ -15,6 +15,11 @@ interface ISafeMinimal {
     function getStorageAt(uint256 offset, uint256 length) external view returns (bytes memory);
 }
 
+interface ISovereignAgentMinimal {
+    function controller() external view returns (address);
+    function registry() external view returns (address);
+}
+
 /// @title SafeAccountVerifier
 /// @notice Account verifier for Safe v1.4.1 accounts operating under the Safe7579 adapter.
 /// Enforces:
@@ -44,6 +49,17 @@ contract SafeAccountVerifier is IAccountVerifier {
         if (account == address(0) || account.code.length == 0) {
             return (false, address(0));
         }
+
+        // 0. SovereignAgent compatibility check
+        try ISovereignAgentMinimal(account).controller() returns (address ctrl) {
+            if (ctrl != address(0) && ctrl.code.length == 0) {
+                try ISovereignAgentMinimal(account).registry() returns (address reg) {
+                    if (reg != address(0)) {
+                        return (true, ctrl);
+                    }
+                } catch {}
+            }
+        } catch {}
 
         // 1. Mastercopy check
         try ISafeMinimal(account).masterCopy() returns (address mc) {
