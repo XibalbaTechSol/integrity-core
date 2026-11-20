@@ -76,6 +76,9 @@ contract SovereignAgent is AccessControl, IAccount {
     /// @notice The `AgentRegistry` this agent was built for (the gate's pin).
     address public immutable registry;
 
+    /// @notice The current controller EOA of this agent.
+    address public controller;
+
     /// @notice Swappable execution policy. address(0) skips the check (testnet default).
     IExecutionPolicy public executionPolicy;
 
@@ -108,8 +111,18 @@ contract SovereignAgent is AccessControl, IAccount {
         require(controller_ != address(0), "SovereignAgent: zero controller");
         _agentDID = did_;
         registry = registry_;
+        controller = controller_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, controller_);
+
+        if (registry_ != address(0) && registry_.code.length > 0) {
+            try AgentRegistry(registry_).integrityHook() returns (address hook) {
+                if (hook != address(0) && hook.code.length > 0) {
+                    (bool ok,) = hook.call(abi.encodeWithSignature("onInstall(bytes)", abi.encode(uint32(7 days), uint32(0))));
+                    ok;
+                }
+            } catch {}
+        }
     }
 
     /// @inheritdoc IAccount
@@ -289,7 +302,20 @@ contract SovereignAgent is AccessControl, IAccount {
         require(newController != address(0), "SovereignAgent: zero controller");
         _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(DEFAULT_ADMIN_ROLE, newController);
+        controller = newController;
         emit ControllerRotated(msg.sender, newController);
+    }
+
+    /// @notice ERC-7579 module inquiry for registry v3 governance compatibility.
+    function isModuleInstalled(uint256 moduleTypeId, address module, bytes calldata) external view returns (bool) {
+        if (moduleTypeId == 4 && registry != address(0) && registry.code.length > 0) {
+            try AgentRegistry(registry).integrityHook() returns (address hook) {
+                return module == hook;
+            } catch {
+                return false;
+            }
+        }
+        return false;
     }
 
     /// @notice EIP-1271: the agent signs through its controller. Used by `AgentRegistry` for actor
