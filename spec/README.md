@@ -20,16 +20,17 @@ section previously pointed at `integrity-protocol-v0.4.md` as the accepted norma
 specification after the real cutover to `docs/SPEC.md` had already happened; that drift
 was corrected 2026-09-05 (see `PRODUCTION_GAPS.md`'s dated pointer-correction entry).
 
-[`docs/SPEC.md`](../docs/SPEC.md) (v1.0.0-draft) is the **active normative specification** —
-foundational primitives, AIS, memory, authority, interop, kernel/adapter-registry
+[`docs/SPEC.md`](../docs/SPEC.md) (v1.0.0) is the **active normative specification** —
+foundational primitives, 3-tier identity & actor topology, AIS, memory, authority, interop, and wallet/kernel
 requirements. Implementations claim conformance only against this file; it supersedes
 `integrity-protocol-v0.4.md`, which is archived.
 
 [`WHITEPAPER.md`](../docs/WHITEPAPER.md) (v3.2) is the current
 **non-normative explanatory whitepaper**. It may explain and motivate the protocol, but it
 cannot amend it by itself — `docs/SPEC.md` is the only document implementations claim
-conformance against. [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
-is a generated release artifact, not a source of truth. The archived v3.1 and v3.2 copies are historical release evidence; the canonical source is `docs/WHITEPAPER.md`.
+conformance against. [`Integrity_Protocol_Specification_v1.0.0.pdf`](Integrity_Protocol_Specification_v1.0.0.pdf)
+and [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
+are generated release artifacts, not sources of truth.
 
 `integrity-protocol-v0.5-proposed.md` was a proposed amendment derived from the whitepaper;
 it is now archived alongside v0.4 rather than a live review candidate — check
@@ -38,9 +39,9 @@ prose to stay current on that point.
 
 | Layer | Current document | Authority |
 |---|---|---|
-| Accepted normative specification | `docs/SPEC.md` (v1.0.0-draft) | Active requirements |
+| Accepted normative specification | `docs/SPEC.md` (v1.0.0) | Active requirements |
 | Explanatory whitepaper | `docs/WHITEPAPER.md` (v3.2) | Current non-normative rationale and roadmap |
-| Compiled publication | `Integrity_Protocol_Whitepaper_v3.2.pdf` | Generated artifact only |
+| Compiled publication | `Integrity_Protocol_Specification_v1.0.0.pdf` / `Integrity_Protocol_Whitepaper_v3.2.pdf` | Generated artifacts only |
 | Archived (not normative) | `docs/archive/2026-08/integrity-protocol-v0.4.md`, `integrity-protocol-v0.5-proposed.md` | Historical only |
 
 It lives here, in markdown and under version control, deliberately: a specification that

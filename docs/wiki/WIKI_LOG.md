@@ -1,5 +1,22 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-20] update | Normative SPEC v1.0, 3-Tier Identity Topology, SovereignAgent Wallet Stack, and Specification PDF
+
+- Upgraded normative specification (`docs/SPEC.md`) to **v1.0.0** (November 2026), incorporating the closed-loop dynamical systems formulation ($\dot{x}(t) = Ax(t) + Bu(t) + w(t)$, post-state invariance gate $V(a,x,C)$, AIS reward shaping $R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$).
+- Documented the canonical **3-Tier Identity & Actor Topology**:
+  - Tier 0: Gasless off-chain Ed25519 DID (`did:integrity:<sha256>`).
+  - Tier 1: Base Sepolia `AgentRegistry` singleton + `SovereignAgent` smart account wallet stack (`IntegrityHook.sol`, `IntegrityGuard.sol`, `SafeAccountVerifier.sol`, ERC-7579 execution containment).
+  - Tier 2: Modular ERC-8004 / Agent0 Public Passport (`services[name=DID]` RFC 8785 JSON backlink, CAIP-10 registrations, Oracle `wallet_confined: true` verification).
+- Formalized architectural consolidation from legacy 7-clone `PrimitiveSet` to shared canonical singletons (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`, `PolicyRegistry`, `TrustConfig`).
+- Modernized linked wiki articles:
+  - `concepts/agent-primitives.md`: updated 3-Tier Identity Architecture, SovereignAgent Wallet Stack, and sequence diagram.
+  - `concepts/did.md`: documented Tier 0 Ed25519 DID, Tier 1 CAIP-10 bindings, and Tier 2 ERC-8004 / Agent0 two-way DID service backlinks.
+  - `concepts/foundational-primitives.md`: aligned Primitive 2 (Confined Smart Account / `IntegrityHook`) and Primitive 4 (`AISRegistry`) with v1.0.
+  - `entities/contracts.md`: updated contract manifest with wallet stack (`IntegrityHook`, `IntegrityGuard`, `SafeAccountVerifier`), Trust Layer singletons, and discovery registry (`IntegrityERC8004Registry`).
+  - `entities/trust-layer.md`: documented singleton Trust Layer v2 and integration with `IntegrityHook.sol`.
+- Replaced stale v0.3 PDF references with official print-ready `Integrity_Protocol_Specification_v1.0.0.pdf` and canonical `integrity-protocol-specification.pdf`.
+
+
 ## [2026-11-16] update | Phase I kernel archived
 
 - The owner's kernel review chose to archive `IntegrityKernel` and `IntegrityAccount`. Their source, tests, Halmos proofs, `DeployKernel*` scripts and `make verify-kernel` are gone from `main`; tag `kernel-phase1-archive` marks the last commit with them. Record: `docs/archive/2026-11/kernel-phase1/README.md`.

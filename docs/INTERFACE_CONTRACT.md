@@ -21,7 +21,7 @@ Scope: this rewrite covers **six protocol core packages**:
 `integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the original integrity-core dashboard/landing app (its `demo/` subdirectory is the multi-vertical investor/developer closed-loop scenario engine, see §11 — merged from the former separate `integrity-dashboard/` + `integrity-demo/` packages on 2026-07-09), `integrity-userapi/`, a dedicated user-accounts/auth backend kept strictly separate from the oracle (see §13), and `integrity-framework/`, a reputation-derivatives package reviving the old repo's marketplace/lending concept (see §12, not yet built). Everything else from the old repo (marketing site, unrelated scaffolding, legacy backups, stray installer scripts) is intentionally left out.
 
 External repositories are deliberately outside this interface contract. `xibalba-shield` is the
-endpoint-security evidence producer, and `xibalba-cortex` is the local cognitive store. They
+endpoint-security evidence producer, and `super-cortex` (formerly `xibalba-cortex`) is the cognitive store. They
 consume public integrity-core interfaces; integrity-core's protocol packages must not import,
 call, or require either external repo. `integrity-dashboard/` is the operator web presentation
 layer — a component of this repository, not an external one; it consumes the same public
@@ -90,7 +90,7 @@ than as integrity-core services:
 
 | Fronted service | Port | Owning repo |
 |---|---|---|
-| Cortex local API | 8420 | `xibalba-cortex` |
+| Cortex local API | 8420 | `super-cortex` |
 | Shield backend API | 8435 (default 8765) | `xibalba-shield` |
 
 Shield's backend defaults to **8765** (`shield/backend/api.py`'s `--port`, `SHIELD_BACKEND_PORT`);
@@ -546,10 +546,10 @@ change**, and §4.4a's `GENESIS_VAULT_ROOT` sentinel remains valid as the empty 
 Because each node commits to its parents, anchoring one head transitively commits
 its whole reachable history.
 
-### 4.4c Policy action-graph edge leaf (contracts ↔ xibalba-cortex) — `[final-review fix 2026-11-09]`
+### 4.4c Policy action-graph edge leaf (contracts ↔ super-cortex) — `[final-review fix 2026-11-09]`
 
 The per-domain action graph that `PolicyRegistry` commits to (`graphRootOf[domainId]`) and
-that `xibalba-cortex`'s navigation engine reproduces off-chain share ONE canonical leaf. It is
+that `super-cortex`'s navigation engine reproduces off-chain share ONE canonical leaf. It is
 a different tree from §4.4's memory tree, but uses the same keccak256 + OZ sorted-pair rules.
 
 ```
@@ -1355,7 +1355,7 @@ directly.
 
 ### 6.11 Dashboard-to-Cortex Operations tab boundary
 
-`xibalba-cortex` remains an external, profile-isolated cognitive store, not a
+`super-cortex` remains an external, profile-isolated cognitive store, not a
 third Integrity trust domain and not an authority for AIS, BCC, chain state,
 or protocol decisions. The dashboard may consume its local API through
 `integrity-dashboard/src/services/graphMemory.ts`; no protocol backend may

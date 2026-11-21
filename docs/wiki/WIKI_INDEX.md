@@ -3,7 +3,7 @@
 > Canonical machine-readable catalog for `docs/wiki/`. The landing page is
 > `index.md`; this file lists every article page for linting.
 
-Last updated: 2026-11-18 | Total pages: 38
+Last updated: 2026-11-20 | Total pages: 38
 
 ## Concepts
 

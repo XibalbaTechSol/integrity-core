@@ -1,105 +1,120 @@
 ---
-title: Agent Primitives (Self-Sovereign Identity)
+title: Agent Primitives & Wallet Stack (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-11-16
+updated: 2026-11-20
 type: concept
-tags: [identity, layer-2, tokenomics, control-layer]
+tags: [identity, layer-2, tokenomics, control-layer, wallet-stack, erc8004]
 confidence: high
 source_files:
-  - contracts/src/framework/AgentPrimitivesFactory.sol
-  - contracts/src/framework/XibalbaAgentRegistry.sol
+  - contracts/src/framework/AgentRegistry.sol
+  - contracts/src/framework/AgentLineageRegistry.sol
+  - contracts/src/trust/StakeVault.sol
+  - contracts/src/trust/AISRegistry.sol
+  - contracts/src/trust/ActionAnchor.sol
+  - contracts/src/wallet/IntegrityHook.sol
+  - contracts/src/wallet/IntegrityGuard.sol
+  - contracts/src/wallet/SafeAccountVerifier.sol
   - contracts/src/core/SovereignAgent.sol
-  - docs/INTERFACE_CONTRACT.md
+  - contracts/src/kernel/IntegrityERC8004Registry.sol
+  - docs/SPEC.md
 ---
 
-> **Not to be confused with the four foundational primitives — or the kernel's three.** This
-> page is about the seven **contracts** an agent owns (the `PrimitiveSet`). The four
-> *foundational* primitives — memory, agent-owned contracts, authority, reputation — are
-> **concepts**, documented in [The Four Foundational Primitives](foundational-primitives.md).
-> This page is one of them (#2, Agent-Owned Contracts) expressed in Solidity; the other
-> three are not contracts at all. A third, unrelated sense also exists: the **kernel
-> primitives** (spec v3.2 §4.4) — value conservation, metered-rights depletion, and
-> replay-domain monotonicity — were invariants the experimental `IntegrityKernel` enforced, archived
-> on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)), and are not part of this page's `PrimitiveSet` at all (see the
-> naming box in [The Four Foundational Primitives](foundational-primitives.md)).
+> **Architectural Evolution Note (v1.0 Baseline):** Early prototype revisions (v0.3–v0.4) deployed 7 distinct contracts per agent (the legacy `PrimitiveSet`: 2 direct deploys + 5 EIP-1167 clones). In v1.0, the protocol has unified around **shared canonical singletons** (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`, `PolicyRegistry`, `TrustConfig`) combined with a modular **SovereignAgent Wallet Stack** (`IntegrityHook`, `IntegrityGuard`, `SafeAccountVerifier`) and a **3-Tier Identity Architecture** (Tier 0 Ed25519 DID, Tier 1 On-Chain Actor, Tier 2 ERC-8004 / Agent0 Public Passport). This eliminated fragmented liquidity and per-agent deployment gas while strengthening invariant guarantees.
 
-The defining architecture of the Integrity Protocol: **an agent owns and
-deploys its own on-chain contracts.** There is no privileged factory that
-registers agents into shared global state on their behalf. On registration, an
-agent comes to own **7 primitive contracts** — and because the agent's own EVM
-wallet signs the deploy transactions for two of them, the chain itself is
-cryptographic proof of who controls the identity.
+The defining architecture of the Integrity Protocol: **an agent operates through a policy-confined on-chain smart account** whose state transitions and fund movements are bounded by mathematically verified invariants.
 
 ## Table of contents
 
-- [The 7 primitives](#the-7-primitives)
-- [Call-routing convention (load-bearing)](#call-routing-convention-load-bearing)
-- [Registration sequence](#registration-sequence)
+- [The 3-Tier Identity Architecture](#the-3-tier-identity-architecture)
+- [The SovereignAgent Wallet Stack](#the-sovereignagent-wallet-stack)
+- [The Canonical Singletons (Trust Layer v2)](#the-canonical-singletons-trust-layer-v2)
+- [Historical Reference: Legacy 7-Clone PrimitiveSet](#historical-reference-legacy-7-clone-primitiveset)
+- [Call-Routing & Mediation Invariants](#call-routing-mediation-invariants)
+- [Modern Registration & Invariant Sequence (v1.0)](#modern-registration-invariant-sequence-v1-0)
 - [Implications](#implications)
 - [Sovereign vs. Centralized Deployment Topologies](#sovereign-vs-centralized-deployment-topologies)
   - [1. Sovereign Mode (Agent-Owned Clones)](#1-sovereign-mode-agent-owned-clones)
   - [2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)](#2-centralized-mode-eoa-owned-dao-governed-singletons)
 
-## The 7 primitives
+## The 3-Tier Identity Architecture
 
-| # | Primitive | Deploy | Role |
-|---|---|---|---|
-| 1 | `SovereignAgent` | direct (agent's wallet) | Account contract: DID, cached AIS, `execute`, controller rotation |
-| 2 | `StateAnchor` | direct (agent's wallet) | Per-agent tamper-evident Merkle-root anchor |
-| 3 | `ReputationRegistry` | EIP-1167 clone | Per-agent [AIS](ais.md) ledger + ZK-boost bookkeeping |
-| 4 | `Slasher` | EIP-1167 clone | Per-agent $ITK stake / dispute-gated slashing |
-| 5 | `VerifierRegistry` | EIP-1167 clone | Per-agent versioned [ZK verifier](zkp.md) pointer |
-| 6 | `ComplianceGate` | EIP-1167 clone | Per-agent [regulated-industry gate](compliance-gate.md) |
-| 7 | `AgentProfile` | EIP-1167 clone | Per-agent domain membership + metadata |
+1. **Tier 0: Gasless Off-Chain Ed25519 DID (`did:integrity:<sha256(pubkey)>`)**
+   - Cryptographic root identity generated locally at zero gas cost.
+   - Signs telemetry spans and BCC intent mediation over RFC 8785 canonical JSON.
+   - Registered with the Oracle via `POST /v1/agent/register/offchain`.
 
-**2 direct + 5 clones.** The two direct deploys are what make the identity
-self-sovereign — signed by the agent's own key. The five clones are cheap
-EIP-1167 minimal proxies of shared implementation contracts (~50k gas each vs. a
-full deploy), yet each clone is still uniquely owned and controlled by that one
-agent.
+2. **Tier 1: On-Chain Actor & Smart Account (`AgentRegistry` + `SovereignAgent` Wallet Stack)**
+   - Authoritative on-chain execution identity registered on Base Sepolia (`AgentRegistry.sol`).
+   - Confined execution via `SovereignAgent.sol` or Safe v1.4.1 under `Safe7579`.
+   - Post-state enforcement via `IntegrityHook.sol` and `IntegrityGuard.sol`.
 
-## Call-routing convention (load-bearing)
+3. **Tier 2: Modular ERC-8004 / Agent0 Public Discovery Passport**
+   - Public discovery layer via ERC-8004 registries (Base Sepolia `0x8004A818BFB912233c491871b3d84c89A494BD9e`).
+   - Registration documents carry cryptographic two-way `DID` service backlinks (`services[name=DID]` -> `did:integrity:<sha256>`) and CAIP-10 registrations.
+   - Oracle verifies `wallet_confined: true` via `POST /v1/agent/{id}/erc8004`.
 
-Every clone's `DEFAULT_ADMIN_ROLE` is granted to the agent's `SovereignAgent`
-**contract** address — never its raw EOA. All post-registration state changes
-route through `SovereignAgent.execute(cloneAddr, 0, calldata)`. The single
-bootstrap exception is the `AgentPrimitivesFactory.registerPrimitives` call
-itself (the SovereignAgent cannot route the call that registers it), which is
-EOA-signed and gated by `SovereignAgent.hasRole(DEFAULT_ADMIN_ROLE, msg.sender)`.
+## The SovereignAgent Wallet Stack
 
-`Slasher`'s admin/arbiter is protocol **governance**, never the agent — an agent
-cannot be trusted to arbitrate its own slashing dispute.
+For both sovereign and enclosed enterprise agents, on-chain execution is guarded by four modular contracts:
 
-## Registration sequence
+| Contract | Standard | Role |
+|---|---|---|
+| `SovereignAgent.sol` | Sovereign smart account | Direct agent-controlled account with cached AIS, controller rotation, and execution policy gates |
+| `IntegrityHook.sol` | ERC-7579 Hook | Evaluates post-state constraint vector \(C(x_{k+1}) \le 0\), spend limits, AIS floors, and staking gates; reverts on violation |
+| `IntegrityGuard.sol` | Safe Transaction Guard | Prevents module removal, bypass of Safe7579, or unauthorized state mutation during direct Safe execution |
+| `SafeAccountVerifier.sol` | Account Verifier | Asserts account invariant conformance: Safe mastercopy, threshold == 1, single EOA owner, and Safe7579 sole module |
 
-Performed by the [Integrity SDK](../entities/integrity-sdk.md) /
-[integrity-cli](../entities/integrity-cli.md), each step signed by the agent's
-own wallet (except the initial funding):
+## The Canonical Singletons (Trust Layer v2)
 
-1. Fund the agent wallet with ETH + $ITK from the protocol funder wallet.
-2. Deploy `SovereignAgent` (direct).
-3. Deploy `StateAnchor` (direct), admin = the SovereignAgent contract.
-4. Grant the oracle `ANCHOR_ROLE` on the StateAnchor, via `SovereignAgent.execute`.
-5. `AgentPrimitivesFactory.registerPrimitives` — clones the 5, registers all 7
-   in [`XibalbaAgentRegistry`](../entities/contracts.md).
+Instead of deploying private clones for each agent, all agents participate in shared canonical singletons:
+
+| Contract | Deploy | Role |
+|---|---|---|
+| `AgentRegistry.sol` | Singleton | Global agent identity, controller mapping, and lineage tracking |
+| `StakeVault.sol` | Singleton | Shared economic collateral vault ($ITK), per-action locks, and latching freeze logic |
+| `AISRegistry.sol` | Singleton | Oracle-posted Agent Integrity Score checkpoints and evidence Merkle roots |
+| `ActionAnchor.sol` | Singleton | Shared Merkle root anchor for verified telemetry traces |
+| `PolicyRegistry.sol` | Singleton | Domain action graphs and risk weights for call compliance |
+| `TrustConfig.sol` | Singleton | Governance-pinned addresses linking the vault, policy registry, and reward modules |
+
+## Historical Reference: Legacy 7-Clone PrimitiveSet
+
+In protocol versions prior to v1.0, an agent deployed 2 direct contracts (`SovereignAgent`, `StateAnchor`) and 5 EIP-1167 clones (`ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, `AgentProfile`) via `AgentPrimitivesFactory.sol`. This pattern has been superseded by the shared singletons above, though `AgentPrimitivesFactory` remains in the codebase for backwards compatibility.
+
+## Call-Routing & Mediation Invariants
+
+All transactions altering state or transferring value MUST route through the agent's smart account and invoke `IntegrityHook`:
+- **Pre-check**: Projected state sanity, frozen status, and AIS reputation floor.
+- **Post-check**: Conservation of realized post-state, daily outbound volume caps, and meter decrement.
+- **Revert semantics**: If any constraint \(g_i(T(x_k, a)) > 0\), the transaction reverts, guaranteeing closed-loop forward invariance within the admissible set \(S_C\).
+
+## Modern Registration & Invariant Sequence (v1.0)
+
+Performed by the [Integrity SDK](../entities/integrity-sdk.md) / [integrity-cli](../entities/integrity-cli.md):
+
+1. **Tier 0 Generation**: Generate Ed25519 keypair, derive `did:integrity:<sha256(pubkey)>`.
+2. **On-Chain Provisioning**: Deploy or attach the agent's policy-confined smart account (`SovereignAgent` or Safe v1.4.1 + Safe7579).
+3. **Guard & Hook Configuration**: Attach `IntegrityHook` (ERC-7579 hook) and `IntegrityGuard` (Safe transaction guard).
+4. **AgentRegistry Registration**: Register agent address and DID in singleton `AgentRegistry.sol`.
+5. **Tier 2 Public Passport Linking**: Publish ERC-8004 registration document (`registration-v1`) with `services[name=DID]` two-way backlink, register in external ERC-8004 registry, and verify `wallet_confined: true` via Oracle.
 
 ```mermaid
 sequenceDiagram
-    participant Funder as Protocol funder wallet
-    participant Wallet as Agent's own EVM wallet
-    participant SA as SovereignAgent
-    participant StA as StateAnchor
-    participant Factory as AgentPrimitivesFactory
-    participant Registry as XibalbaAgentRegistry
+    participant Dev as Agent Harness / SDK
+    participant T0 as Tier 0 (Ed25519 DID)
+    participant Wallet as SovereignAgent / Safe
+    participant Hook as IntegrityHook & Guard
+    participant Registry as AgentRegistry Singleton
+    participant ERC8004 as ERC-8004 / Agent0 Registry
+    participant Oracle as Integrity Oracle
 
-    Funder->>Wallet: 1. fund with ETH + $ITK
-    Wallet->>SA: 2. deploy (direct)
-    Wallet->>StA: 3. deploy (direct, admin = SA)
-    Wallet->>SA: 4. execute(grant oracle ANCHOR_ROLE on StA)
-    Wallet->>Factory: 5. registerPrimitives(...)
-    Factory->>Factory: clone ReputationRegistry, Slasher,<br/>VerifierRegistry, ComplianceGate, AgentProfile
-    Factory->>Registry: register all 7 primitive addresses
-    Note over Wallet,Registry: every step after #1 is signed by the<br/>agent's own key — no privileged party registers on its behalf
+    Dev->>T0: 1. Generate keypair & did:integrity:...
+    Dev->>Wallet: 2. Deploy / configure smart account
+    Dev->>Hook: 3. Install IntegrityHook & IntegrityGuard
+    Dev->>Registry: 4. Register agent & DID in AgentRegistry
+    Dev->>ERC8004: 5. Mint ERC-8004 passport with DID service backlink
+    Dev->>Oracle: 6. POST /v1/agent/{id}/erc8004 (verify wallet_confined: true)
+    Oracle-->>Dev: Verified registration projection (Tier 0 + 1 + 2 bound)
 ```
 
 ## Implications

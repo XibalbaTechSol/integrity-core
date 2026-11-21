@@ -1,14 +1,15 @@
 ---
 title: The Four Foundational Primitives of the Control Layer
 created: 2026-07-30
-updated: 2026-11-16
+updated: 2026-11-20
 type: concept
-tags: [identity, metrics, compliance, primitives, control-layer]
+tags: [identity, metrics, compliance, primitives, control-layer, wallet-stack]
 confidence: high
 source_files:
   - contracts/src/oracle/StateAnchor.sol
-  - contracts/src/oracle/ReputationRegistry.sol
-  - contracts/src/health/SmartBAA.sol
+  - contracts/src/trust/AISRegistry.sol
+  - contracts/src/framework/AgentRegistry.sol
+  - contracts/src/wallet/IntegrityHook.sol
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/framework/AgentAuthorityResolver.sol
 ---
@@ -17,22 +18,22 @@ source_files:
 
 Before an enterprise, human principal, or peer agent delegates real-world actions, capital, or sensitive data to an autonomous AI agent, four fundamental questions must be resolved. 
 
-The Integrity Protocol defines **Four Foundational Primitives** as the mathematical and legal pillars of its AI Agent Control Layer:
+The Integrity Protocol defines **Four Foundational Primitives** as the mathematical and operational pillars of its AI Agent Control Layer:
 
 | # | Primitive | Foundational Question | Architectural Realization |
 |---|---|---|---|
-| 1 | **Persistent Memory** | *Is this the same agent across time?* | Merkle-anchored state lineage on [`StateAnchor.sol`](agent-memory.md) |
-| 2 | **Agent-Owned Contracts** | *Can it act, and can it bear economic loss?* | Self-sovereign contract ownership via [`SovereignAgent.sol`](agent-primitives.md) |
-| 3 | **Authority** | *May it act, and on whose behalf?* | Cryptographically delegated credentials via [`AgentAuthorityResolver.sol`](did.md) |
-| 4 | **Reputation** | *How has it actually acted in the past?* | Deterministic [AIS](ais.md) settled on [`ReputationRegistry.sol`](../entities/contracts.md) |
+| 1 | **Persistent Memory** | *Is this the same agent across time?* | Merkle-anchored state lineage on [`StateAnchor.sol`](agent-memory.md) & [Super-Cortex](../entities/contracts.md) |
+| 2 | **Policy-Confined Smart Account** | *Can it act, and can it bear economic loss safely?* | Policy-confined smart accounts via [`SovereignAgent.sol`](agent-primitives.md) and [`IntegrityHook.sol`](../entities/contracts.md) |
+| 3 | **Authority** | *May it act, and on whose behalf?* | Cryptographically delegated credentials via [`AgentAuthorityResolver.sol`](did.md) & OPA |
+| 4 | **Reputation** | *How has it actually acted in the past?* | Deterministic [AIS](ais.md) settled on [`AISRegistry.sol`](../entities/trust-layer.md) |
 
 ```mermaid
 flowchart TD
     subgraph Primitives["The Four Foundational Primitives"]
-        P1["1. Persistent Memory<br/>Continuity of Identity & State Lineage<br/>(StateAnchor.sol · Genesis Root)"]
-        P2["2. Agent-Owned Contracts<br/>Residual Economic Control & Staking<br/>(SovereignAgent.sol · PrimitiveSet)"]
+        P1["1. Persistent Memory<br/>Continuity of Identity & State Lineage<br/>(StateAnchor.sol · Super-Cortex)"]
+        P2["2. Confined Smart Account<br/>Residual Economic Control & Staking<br/>(SovereignAgent.sol · IntegrityHook)"]
         P3["3. Authority<br/>Delegated Scope & Non-Self-Granted Rights<br/>(AgentAuthorityResolver · Policy Packs)"]
-        P4["4. Reputation<br/>Earned Non-Forgeable Standing & AIS<br/>(ReputationRegistry · Integrity Oracle)"]
+        P4["4. Reputation<br/>Earned Non-Forgeable Standing & AIS<br/>(AISRegistry · Integrity Oracle)"]
     end
 
     P1 -->|Presupposition of identity| P2
@@ -53,9 +54,9 @@ flowchart TD
 
 To avoid architectural confusion when developing on the protocol, distinguish between the three distinct uses of "primitive":
 
-1. **Foundational Primitives (This Page):** The four theoretical requirements for economic agency (Memory, Ownership, Authority, Reputation).
-2. **Agent Primitives ([`agent-primitives.md`](agent-primitives.md)):** The 7 per-agent smart contracts cloned during registration via `AgentPrimitivesFactory.sol`.
-3. **Kernel Invariants:** The three mathematical constraints a kernel enforces on-chain (value conservation, monotone rights depletion, replay-domain monotonicity). The experimental `IntegrityKernel.sol` that implemented them was archived on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)).
+1. **Foundational Primitives (This Page):** The four theoretical requirements for economic agency (Memory, Account Confinement, Authority, Reputation).
+2. **Agent Primitives ([`agent-primitives.md`](agent-primitives.md)):** The on-chain contracts representing agent identity and execution. In v0.3-v0.4, these were 7 cloned contracts; in v1.0, they have evolved into the canonical singletons (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`) paired with the modular `SovereignAgent` wallet stack (`IntegrityHook`, `IntegrityGuard`, `SafeAccountVerifier`).
+3. **Kernel Invariants:** The three mathematical constraints a kernel enforces on-chain (value conservation, monotone rights depletion, replay-domain monotonicity). The experimental `IntegrityKernel.sol` that implemented them was archived on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)) and superseded by `IntegrityHook.sol`.
 
 ---
 
