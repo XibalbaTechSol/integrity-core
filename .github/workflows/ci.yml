@@ -96,10 +96,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for Rust/Oracle changes
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGES=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- integrity-oracle/ Cargo.lock Cargo.toml .github/workflows/ci.yml || true)
+            if [ -z "$CHANGES" ]; then
+              echo "No integrity-oracle changes detected in PR. Skipping Rust compilation and tests."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@master
+        if: steps.filter.outputs.skip != 'true'
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
+        if: steps.filter.outputs.skip != 'true'
         with:
           workspaces: integrity-oracle
       # Real-toolchain (ORACLE_E2E=1) tests need Postgres/Redis/anvil/forge and are NOT
@@ -107,6 +123,7 @@ jobs:
       # binary's default (skip-logging) path, matching what a bare `cargo test` does
       # without ORACLE_E2E set. See backend/tests/e2e.rs's own doc comment.
       - run: cargo test --workspace
+        if: steps.filter.outputs.skip != 'true'
         working-directory: integrity-oracle
 
   sdk:
