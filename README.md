@@ -55,6 +55,27 @@ flowchart LR
 
 ---
 
+## Repository Directory Structure
+
+```
+integrity-core/
+├── bcc_middleware/        # Behavioral Commitment Chain (BCC) FastAPI runtime & policy gate
+├── contracts/             # EVM Smart Contracts (Solidity 0.8.28, Foundry test suite)
+│   ├── src/               # SovereignAgent, AgentRegistry, AISRegistry, SmartBAA, Staking
+│   ├── script/            # Deployment and migration scripts
+│   └── test/              # Foundry unit, fuzz, and integration tests
+├── integrity-cli/         # Command-line interface (`integrity` CLI, DID, ERC-8004, keys)
+├── integrity-oracle/      # Rust Axum cryptographic attestation and state-sync oracle
+├── integrity-sdk/         # Python client library (`integrity_sdk`) for agents & telemetry
+├── packaging/             # Deployment configurations, systemd service units, Dockerfiles
+├── packs/                 # Standard integrity verification and policy packs
+├── scripts/               # Automation, deployment, and testing helper scripts
+├── spec/                  # Normative protocol specification documents (v1.0.0)
+└── docs/                  # Architectural RFCs, formal specs, audit matrices, and designs
+```
+
+---
+
 ## Canonical documents
 
 | File | Audience |
