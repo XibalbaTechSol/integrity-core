@@ -4,6 +4,10 @@
 .env.*.local
 *.pem
 *.key
+*.orig
+*.bak
+*.tmp
+*.swp
 deployments.local.json
 !.env.example
 # Real, public AWS Nitro root CA cert (not a secret) — attestation.py pins its SHA-256
