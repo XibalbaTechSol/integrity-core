@@ -1,9 +1,9 @@
 ---
 title: trust-layer
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-20
 type: entity
-tags: [layer-2, tokenomics, staking, control-layer, security]
+tags: [layer-2, tokenomics, staking, control-layer, security, singletons, wallet-stack]
 confidence: high
 source_files:
   - contracts/src/trust/ITK.sol
@@ -15,8 +15,10 @@ source_files:
   - contracts/src/trust/DiscountRewardModule.sol
   - contracts/src/trust/ActionAnchor.sol
   - contracts/src/trust/TrustConfig.sol
+  - contracts/src/framework/AgentRegistry.sol
+  - contracts/src/wallet/IntegrityHook.sol
+  - contracts/src/wallet/IntegrityGuard.sol
   - contracts/src/core/SovereignAgent.sol
-  - contracts/src/framework/AgentPrimitivesFactory.sol
   - contracts/script/Deploy.s.sol
   - integrity-sdk/tests/test_trust_wiring.py
 ---
@@ -28,6 +30,8 @@ The trust layer is the on-chain economic tier of the protocol: it turns an agent
 action it executes locks some of that stake, and a score that falls below a threshold freezes the
 agent until governance acts. It is the slowest of the protocol's control loops and is opt-in:
 policy evaluation and signed receipts work without it.
+
+All trust layer contracts are canonical shared **singletons** keyed by agent address (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`, `PolicyRegistry`, `TrustConfig`). Both `SovereignAgent` and modular smart accounts running `IntegrityHook.sol` consume these views (`IAgentRegistryView`, `IAISRegistryView`, `IStakeVaultView`) directly to enforce bounds on-chain.
 
 ## Table of contents
 

@@ -1,32 +1,30 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-11-16
+updated: 2026-11-20
 type: entity
-tags: [layer-2, identity, tokenomics, compliance, control-layer]
+tags: [layer-2, identity, tokenomics, compliance, control-layer, wallet-stack, erc8004]
 confidence: high
 source_files:
+  - contracts/src/framework/AgentRegistry.sol
+  - contracts/src/framework/AgentLineageRegistry.sol
   - contracts/src/framework/AgentPrimitivesFactory.sol
-  - contracts/src/framework/XibalbaAgentRegistry.sol
-  - contracts/src/oracle/StateAnchor.sol
-  - contracts/script/DeployProtocolEvidenceAnchor.s.sol
-  - contracts/src/framework/AgentAuthorityResolver.sol
-  - contracts/src/kernel/IntegrityIdentityReadV1.sol
-  - contracts/src/framework/XibalbaNameService.sol
+  - contracts/src/wallet/IntegrityHook.sol
+  - contracts/src/wallet/IntegrityGuard.sol
+  - contracts/src/wallet/SafeAccountVerifier.sol
+  - contracts/src/trust/StakeVault.sol
+  - contracts/src/trust/AISRegistry.sol
+  - contracts/src/trust/ActionAnchor.sol
+  - contracts/src/trust/PolicyRegistry.sol
+  - contracts/src/kernel/IntegrityERC8004Registry.sol
   - contracts/src/core/SovereignAgent.sol
-  - contracts/src/oracle/ReputationRegistry.sol
   - contracts/src/health/ComplianceGate.sol
-  - contracts/src/health/SmartBAAFactory.sol
   - contracts/src/health/SmartBAA.sol
   - contracts/script/Deploy.s.sol
-  - contracts/script/DeployEHRGate.s.sol
 ---
 
 The Solidity/Foundry package (solc 0.8.28): the on-chain substrate of the AI Agent Control Layer.
-It implements the [7 agent primitives](../concepts/agent-primitives.md), the
-factory that clones them, the shared registries, the `$ITK` token, the
-[Integrity Health](../concepts/compliance-gate.md) HIPAA vertical, and the
-on-chain reputation settlement contracts on Base L2.
+It implements the [3-tier agent identity](../concepts/did.md), the modular [SovereignAgent wallet stack](../concepts/agent-primitives.md) (`IntegrityHook`, `IntegrityGuard`, `SafeAccountVerifier`), the shared [Trust Layer v2 singletons](trust-layer.md) (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`), the `$ITK` token, the ERC-8004 / Agent0 Public Passport bridge, and the [Integrity Health](../concepts/compliance-gate.md) HIPAA vertical on Base Sepolia / EVM.
 
 ## Table of contents
 
@@ -47,26 +45,27 @@ even though the ordinary contract unit tests can pass.
 
 ## Contents
 
-- **Primitives (per-agent):** `SovereignAgent`, `StateAnchor` (direct-deploy);
-  `ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`,
-  `AgentProfile` (EIP-1167 clones — `Initializable`, set up via `initialize`
-  not a constructor).
-- **Singletons:** `IntegrityToken` ($ITK), `UltraPlonkVerifier`,
-  `XibalbaAgentRegistry`, `IntegrityIdentityReadV1` (future genesis deployments),
-  `XibalbaNameService` (XNS, added 2026-07-11 — see
-  below), `IntegrityGovernance` (added 2026-07-25 — see [Governance](../concepts/governance.md)),
-  `DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
-  `SmartBAAFactory`/`SmartBAA` — see [Smart BAA](../concepts/smart-baa.md) —
-  `HIPAAGuardrailRegistry`, `AgentAuthorityResolver`, `EHRGate`).
-- **Factory:** `AgentPrimitivesFactory.registerPrimitives(...)` clones the 5 and
-  atomically registers all 7 addresses in `XibalbaAgentRegistry`.
-- **Markets (`contracts/src/markets/`, added 2026-07-09):** `IntegrityMarket`
-  (EIP-1167 clone template, one clone per market), `MarketFactory`
-  (singleton — any registered agent deploys+owns its own market clone),
-  `A2ACapitalPool` (singleton — agent-to-agent capital escrow). See
-  [Integrity Market](../concepts/integrity-market.md) for the full design;
-  deployed via the separate incremental `DeployMarkets.s.sol`, not genesis
-  `Deploy.s.sol`.
+- **Modular Wallet Stack (`contracts/src/wallet/`):**
+  - `IntegrityHook.sol`: standard ERC-7579 hook enforcing pre/post-state constraints, daily outbound token limits, AIS reputation floors, and staking gates. Reverts any unauthorized execution.
+  - `IntegrityGuard.sol`: Safe v1.4.1 transaction guard preventing direct execution bypass or tampering with Safe7579 fallback handlers.
+  - `SafeAccountVerifier.sol`: verifies that an enclosed Safe account adheres to canonical single-owner, threshold=1, and Safe7579 sole-module requirements.
+- **Trust Layer Singletons (`contracts/src/trust/`):**
+  - `AgentRegistry.sol` & `AgentLineageRegistry.sol`: canonical identity registry of active agents, controllers, lineage, and policy parameters.
+  - `StakeVault.sol`: shared collateral vault ($ITK) with per-action locking, unbonding delay, dispute slashes, and latching freeze logic.
+  - `AISRegistry.sol`: oracle-posted score checkpoints (basis points, `0..10000`) and evidence Merkle roots.
+  - `ActionAnchor.sol`: shared tamper-evident action trace Merkle root anchor.
+  - `PolicyRegistry.sol`: per-domain call policy and Merkle-verified action graphs.
+  - `TrustConfig.sol`: governance-owned registry wiring the active vault, policy, and reward contracts.
+- **Discovery & ERC-8004 (`contracts/src/kernel/`):**
+  - `IntegrityERC8004Registry.sol`: ERC-8004-shaped Identity Registry for public discovery, linking agentURIs with cryptographic two-way `did:integrity:...` service backlinks and CAIP-10 registrations.
+  - `IntegrityIdentityReadV1.sol`: read-only discovery facade resolving DID documents and account metadata.
+- **Agent Accounts & Anchors (`contracts/src/core/`, `contracts/src/oracle/`):**
+  - `SovereignAgent.sol`: policy-confined smart contract account.
+  - `StateAnchor.sol`: durable state and memory head anchor.
+- **Integrity Health Stack (`contracts/src/health/`):**
+  - `CoveredEntityRegistry`, `SmartBAAFactory`, `SmartBAA`, `HIPAAGuardrailRegistry`, `AgentAuthorityResolver`, `EHRGate`.
+- **Markets (`contracts/src/markets/`):**
+  - `IntegrityMarket.sol`, `MarketFactory.sol`, `A2ACapitalPool.sol`.
 - **`XibalbaNameService` (XNS, `contracts/src/framework/XibalbaNameService.sol`,
   added 2026-07-11):** maps human-readable handles (`"hermes.integrity"`) to a
   registered agent's `SovereignAgent` address. Self-service and

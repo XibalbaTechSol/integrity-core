@@ -1,10 +1,10 @@
 # Single source for document authority and current-version pointers.
 # Consumers may render this metadata, but must not promote archived documents.
-updated: 2026-11-03
+updated: 2026-11-20
 
 normative:
   path: docs/SPEC.md
-  version: v1.0.0-draft
+  version: v1.0.0
 
 whitepaper:
   path: docs/WHITEPAPER.md

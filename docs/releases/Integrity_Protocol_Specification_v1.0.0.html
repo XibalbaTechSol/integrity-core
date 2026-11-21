@@ -1,0 +1,656 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Integrity Protocol Specification v1.0.0</title>
+<style>
+@page {
+    size: A4;
+    margin: 20mm 17mm 19mm;
+    @bottom-center {
+        content: "Integrity Protocol · Specification v1.0.0 · " counter(page);
+        font: 8pt Arial, sans-serif;
+        color: #667085;
+    }
+}
+* { box-sizing: border-box; }
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #182230;
+    line-height: 1.45;
+    font-size: 9.5pt;
+}
+.cover {
+    min-height: 245mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    page-break-after: always;
+    border-top: 8px solid #0284c7;
+}
+.cover h1 {
+    font-size: 30pt;
+    line-height: 1.1;
+    color: #0f172a;
+    margin: 0 0 10px;
+    letter-spacing: -0.5px;
+}
+.cover h2 {
+    font-size: 16pt;
+    font-weight: normal;
+    color: #0284c7;
+    margin: 0 0 28px;
+}
+.meta {
+    color: #475569;
+    font-size: 11pt;
+    line-height: 1.6;
+}
+.notice {
+    margin-top: 35px;
+    border-left: 4px solid #0284c7;
+    padding: 12px 15px;
+    background: #f0f9ff;
+    font-size: 9pt;
+    color: #0369a1;
+}
+.toc { page-break-after: always; }
+.toc h1 { color: #0f172a; }
+.toc ol { padding-left: 20px; }
+.toc li { margin: 4px 0; font-size: 9pt; }
+h1 {
+    color: #0f172a;
+    font-size: 19pt;
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 5px;
+    margin-top: 26px;
+    page-break-after: avoid;
+}
+h2 {
+    color: #0284c7;
+    font-size: 14pt;
+    margin-top: 22px;
+    page-break-after: avoid;
+}
+h3 {
+    color: #0369a1;
+    font-size: 11.5pt;
+    margin-top: 17px;
+    page-break-after: avoid;
+}
+h4 {
+    color: #334155;
+    font-size: 10pt;
+    margin-top: 14px;
+    page-break-after: avoid;
+}
+p { margin: 7px 0; }
+a { color: #0284c7; text-decoration: none; }
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 8.3pt;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+.math-inline {
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    font-size: 9.5pt;
+    background: #f8fafc;
+    padding: 0 2px;
+}
+.math-block {
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    font-size: 10pt;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #0284c7;
+    padding: 8px 12px;
+    margin: 10px 0;
+    border-radius: 2px;
+    text-align: center;
+    white-space: pre-wrap;
+}
+blockquote {
+    margin: 12px 0;
+    padding: 9px 13px;
+    border-left: 4px solid #0284c7;
+    background: #f0f9ff;
+}
+hr {
+    border: 0;
+    border-top: 1px solid #cbd5e1;
+    margin: 18px 0;
+}
+ul, ol { margin-top: 4px; padding-left: 20px; }
+li { margin: 3px 0; }
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 8.2pt;
+    page-break-inside: avoid;
+}
+th {
+    background: #0f172a;
+    color: white;
+    text-align: left;
+    font-weight: 600;
+}
+th, td {
+    border: 1px solid #cbd5e1;
+    padding: 5px 6px;
+    vertical-align: top;
+}
+tr:nth-child(even) td { background: #f8fafc; }
+.code {
+    white-space: pre-wrap;
+    font: 7.2pt/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 10px;
+    border-radius: 3px;
+    page-break-inside: avoid;
+}
+.footnote { font-size: 8pt; color: #64748b; }
+</style></head><body>
+<section class="cover">
+    <h1>Integrity Protocol</h1>
+    <h2>Normative Technical Specification · Version 1.0.0</h2>
+    <div class="meta">
+        <strong>Jacob S. Vickers</strong><br>
+        Founder, Xibalba Solutions, LLC · Racine, Wisconsin<br><br>
+        <strong>Normative Specification</strong> · November 2026<br>
+        Baseline Authority for Implementations
+    </div>
+    <div class="notice">
+        <strong>Normative Authority.</strong> This specification defines the conformance requirements for the Integrity Protocol v1 execution firewall, 3-Tier Identity & Actor Topology, SovereignAgent smart account wallet stack, post-state invariance enforcement, canonical singletons, and evidence verification pipelines.
+    </div>
+</section>
+<section class="toc">
+    <h1>Table of Contents</h1>
+    <ol><li><a href="#1-conformance">1. Conformance</a></li><li><a href="#1-1-closed-loop-dynamical-systems-model">1.1 Closed-Loop Dynamical Systems Model</a></li><li><a href="#2-objects-and-planes">2. Objects and planes</a></li><li><a href="#3-types">3. Types</a></li><li><a href="#3-1-account-state">3.1 Account state</a></li><li><a href="#3-2-action">3.2 Action</a></li><li><a href="#3-3-identity-the-3-tier-identity-and-actor-topology-built">3.3 Identity: The 3-Tier Identity and Actor Topology `[BUILT]`</a></li><li><a href="#3-4-account-profiles-and-singleton-trust-layer-built">3.4 Account Profiles and Singleton Trust Layer `[BUILT]`</a></li><li><a href="#3-4-1-architecture-evolution-from-7-clones-to-singleton-trust-layer">3.4.1 Architecture Evolution: From 7 Clones to Singleton Trust Layer</a></li><li><a href="#3-5-reputation-parameter">3.5 Reputation parameter</a></li><li><a href="#3-6-memory-commitment-partial">3.6 Memory commitment `[PARTIAL]`</a></li><li><a href="#3-7-domain-separator-built-bcc-path">3.7 Domain separator `[BUILT]` (BCC path)</a></li><li><a href="#4-constraint-grammar">4. Constraint grammar</a></li><li><a href="#4-1-sign-convention">4.1 Sign convention</a></li><li><a href="#4-2-abstract-syntax-partial">4.2 Abstract syntax `[PARTIAL]`</a></li><li><a href="#4-3-concrete-yaml-pack-surface">4.3 Concrete YAML (pack surface)</a></li><li><a href="#4-4-conjunction-at-the-hook">4.4 Conjunction at the hook</a></li><li><a href="#4-5-primitive-families-partial">4.5 Primitive families `[PARTIAL]`</a></li><li><a href="#4-6-gas-bound">4.6 Gas bound</a></li><li><a href="#4-7-forbidden">4.7 Forbidden</a></li><li><a href="#5-verification-rule">5. Verification rule</a></li><li><a href="#5-1-forward-invariance-planned-as-machine-checked">5.1 Forward invariance `[PLANNED]` as machine-checked</a></li><li><a href="#5-2-placement-planned">5.2 Placement `[PLANNED]`</a></li><li><a href="#5-3-live-execution-anchor-policy-hooks-built">5.3 Live execution/anchor policy hooks `[BUILT]`</a></li><li><a href="#6-complete-mediation-planned">6. Complete mediation `[PLANNED]`</a></li><li><a href="#7-packs">7. Packs</a></li><li><a href="#7-0-three-layers-two-extra-words">7.0 Three layers, two extra words</a></li><li><a href="#7-1-schema-planned-as-the-only-extension-api">7.1 Schema `[PLANNED]` as the only extension API</a></li><li><a href="#7-2-obligations-was-v3-adapter-r1-r5">7.2 Obligations (was v3 adapter R1–R5)</a></li><li><a href="#7-3-composition">7.3 Composition</a></li><li><a href="#7-4-policy-vs-constraints">7.4 Policy vs constraints</a></li><li><a href="#7-5-compiler-planned">7.5 Compiler `[PLANNED]`</a></li><li><a href="#7-6-first-packs-informative">7.6 First packs (informative)</a></li><li><a href="#7-7-redaction-obligation-partial">7.7 Redaction obligation `[PARTIAL]`</a></li><li><a href="#8-evidence-plane-oracle-and-hybrid-ledger-partial">8. Evidence plane, oracle, and hybrid ledger `[PARTIAL]`</a></li><li><a href="#8-1-split-of-duties">8.1 Split of duties</a></li><li><a href="#8-2-ingest-contract-the-dual-span-rule">8.2 Ingest contract (the dual-span rule)</a></li><li><a href="#8-3-package-and-verify">8.3 Package and verify</a></li><li><a href="#8-4-cursors">8.4 Cursors</a></li><li><a href="#8-5-cortex-responsibilities-reference">8.5 Cortex responsibilities (reference)</a></li><li><a href="#8-6-cortex-reference-implementation-disclosed-anchoring-gaps-partial">8.6 Cortex reference implementation — disclosed anchoring gaps `[PARTIAL]`</a></li><li><a href="#9-decision-grammar">9. Decision grammar</a></li><li><a href="#9-1-bcc-gate-flow-live-pre-execution-path-built">9.1 BCC gate flow (live pre-execution path) `[BUILT]`</a></li><li><a href="#10-ais-partial">10. AIS `[PARTIAL]`</a></li><li><a href="#11-trust-tiers">11. Trust tiers</a></li><li><a href="#12-residual-non-goals-normative-exclusions">12. Residual non-goals (normative exclusions)</a></li><li><a href="#13-liveness-normative-minimum">13. Liveness (normative minimum)</a></li><li><a href="#14-implementation-status-core">14. Implementation status (Core)</a></li><li><a href="#15-machine-readable-fragment-canonical">15. Machine-readable fragment (canonical)</a></li><li><a href="#16-file-authority-after-cutover">16. File authority (after cutover)</a></li></ol>
+</section>
+<main><h1 id="integrity-protocol-v1-specification">Integrity Protocol v1 Specification</h1>
+<p><strong>Status:</strong> Normative Specification <strong>Normative:</strong> this document <strong>Informative:</strong> <code>WHITEPAPER.md</code>, <code>CONTROLS_MATRIX.md</code>, <code>EXECUTION_PLAN.md</code> <strong>Version:</strong> 1.0.0 <strong>Date:</strong> November 2026 <strong>Author:</strong> Jacob S. Vickers, Xibalba Solutions, LLC</p>
+<p>Implementations claim conformance only against this file. The current explanatory whitepaper is <code>WHITEPAPER.md</code> (v3.2); older v3, v0.3, v0.4, and v0.5-proposed documents are archived.</p>
+<p>The key words MUST, MUST NOT, SHOULD, MAY are RFC 2119.</p>
+<p>Status tags on a requirement:</p>
+<table><thead><tr><th>Tag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>[BUILT]</code></td><td>Present in <code>integrity-core</code> (or the named product repo) on <code>main</code> and treated as the live path</td></tr><tr><td><code>[PARTIAL]</code></td><td>Exists; this document&#x27;s semantics supersede older docs. The reduction is disclosed here.</td></tr><tr><td><code>[PLANNED]</code></td><td>Normative when shipped; not required to claim v1 kernel conformance</td></tr><tr><td><code>[EXPERIMENTAL]</code></td><td>Exists as a non-deployed, non-production slice. MUST NOT be claimed as the live path.</td></tr></tbody></table>
+<p>A tag applies to the nearest heading or bullet. Untagged text is definitional.</p>
+<p><strong>How to read this file</strong></p>
+<table><thead><tr><th>If you are…</th><th>Read</th></tr></thead><tbody><tr><td>Deciding whether to buy or enclose an agent</td><td><code>WHITEPAPER.md</code>, then stop. Come back here only for a status tag.</td></tr><tr><td>Implementing the hook, oracle, SDK, or a pack</td><td>This file, in order. §4–§7 are the contract.</td></tr><tr><td>Mapping a control to HIPAA / NIST / OWASP</td><td><code>CONTROLS_MATRIX.md</code>. It does not add requirements.</td></tr><tr><td>Sequencing the work</td><td><code>EXECUTION_PLAN.md</code>. It does not add requirements.</td></tr><tr><td>Tracking what this file names but doesn&#x27;t yet define</td><td><a href="design/spec-open-definitions.md"><code>docs/design/spec-open-definitions.md</code></a>. It does not add requirements either — it proposes fills for gaps this file already discloses (e.g. <code>scope</code> in §4.5).</td></tr></tbody></table>
+<hr>
+<h2 id="1-conformance">1. Conformance</h2>
+<p>A <strong>v1 Core</strong> implementation MUST provide:</p>
+<ol><li>An enclosed account whose state transitions are mediated by the hook in §6.</li><li>Evaluation of a constraint vector <span class="math-inline">C</span> on the <strong>post-state</strong> per §5.</li><li>An evidence plane (§8) that stores signed packages and exposes epoch cursors.</li><li>An oracle that verifies those packages and submits roots (§8.3).</li><li>Pack loading per §7. A Core MAY ship with zero packs installed; it MUST accept a pack that satisfies the schema.</li></ol>
+<p>A <strong>v1 Pack</strong> MUST be conservative (§7.2 R4). A pack MUST NOT be required to implement Integrity Health, ZK ingest, or a second chain.</p>
+<p><strong>Conformance levels:</strong></p>
+<table><thead><tr><th>Level</th><th>Required</th></tr></thead><tbody><tr><td><strong>L0 — Record</strong></td><td>Signed spans + evidence store + oracle verify/anchor. No hook.</td></tr><tr><td><strong>L1 — Constrain + record</strong></td><td>L0 plus a hook that evaluates a pack&#x27;s <span class="math-inline">C</span> on the enclosed account.</td></tr><tr><td><strong>L2 — Full v1</strong></td><td>L1 plus escalate (deny-on-timeout) and at least one non-stub pack.</td></tr></tbody></table>
+<p>v1.0 targets <strong>L1/L2 on EVM chains, multi-OS runtime agents, and modular pack loading</strong>. Independent audit and a machine-checked invariance argument are the continuous verification gate for production releases.</p>
+<h3 id="1-1-closed-loop-dynamical-systems-model">1.1 Closed-Loop Dynamical Systems Model</h3>
+<p>Integrity treats autonomous agent execution as a bounded continuous/discrete feedback control system:</p>
+<div class="math-block">\dot{x}(t) = A x(t) + B u(t) + w(t)</div>
+<p>where:</p>
+<ul><li><span class="math-inline">x(t) \in X</span> is the agent&#x27;s verifiable internal state vector (balances <span class="math-inline">b</span>, allowances <span class="math-inline">\ell</span>, nonces <span class="math-inline">n</span>, consumable resource meters <span class="math-inline">q</span>, installed modules <span class="math-inline">m</span>, policy parameters <span class="math-inline">\pi</span>, and memory hash-chain head <span class="math-inline">h</span>).</li><li><span class="math-inline">u(t) \in U</span> is the control action vector chosen by the agent&#x27;s LLM/policy harness (target contract, value transfer, calldata, operation).</li><li><span class="math-inline">w(t) \in W</span> represents exogenous disturbances (market slippage, counterparty actions, RPC latencies, environment changes).</li><li>The admissible safe state set is defined by the constraint vector <span class="math-inline">C = (g_1, \ldots, g_m)</span>:</li></ul>
+<div class="math-block">  S_C = \{\, x \in X \mid g_i(x) \le 0 \quad \forall i = 1,\ldots,m \,\}</div>
+<p>The protocol guarantees forward invariance: if <span class="math-inline">x(0) \in S_C</span>, then for all <span class="math-inline">t \ge 0</span>, <span class="math-inline">x(t) \in S_C</span>. The enforcement hook acts as a real-time Lyapunov barrier / projection operator that checks the post-state <span class="math-inline">T(x_k, a)</span>. If any <span class="math-inline">g_i(T(x_k, a)) &gt; 0</span>, the execution reverts with zero state mutation, preventing the system from ever departing <span class="math-inline">S_C</span>.</p>
+<p>Furthermore, the agent&#x27;s reinforcement learning / policy gradient objective incorporates the Agent Integrity Score (AIS) via bounded reward shaping:</p>
+<div class="math-block">R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}</div>
+<p>where <span class="math-inline">\lambda \ge 0</span> aligns optimization incentives with boundary compliance. AIS widens finite operational envelopes within strict upper bounds (<span class="math-inline">c_i^{\max} &lt; \infty</span>), but MUST NEVER turn a hard constraint <code>deny</code> into <code>allow</code>.</p>
+<hr>
+<h2 id="2-objects-and-planes">2. Objects and planes</h2>
+<p>v1 is a three-plane system. No other top-level plane is defined.</p>
+<table><thead><tr><th>Plane</th><th>Object</th><th>Role</th><th>MUST NOT</th></tr></thead><tbody><tr><td><strong>Enforce</strong></td><td>Account <span class="math-inline">A</span>, Hook</td><td>Modular smart account (<code>SovereignAgent</code> or Safe+Safe7579). <code>IntegrityHook</code> (ERC-7579) evaluates <span class="math-inline">C</span> post-state and reverts on violation.</td><td>Become an analytics platform</td></tr><tr><td><strong>Record</strong></td><td>Super-Cortex (reference), Oracle</td><td>Persistent evidence, neural memory, hash-chained spans; verify and anchor roots</td><td>Become the final authority to move funds; be a second hook</td></tr><tr><td><strong>Learn</strong></td><td>AIS</td><td>Evidence-derived integrity measurement and reward shaping</td><td>Create unbounded authority; turn deny into allow</td></tr><tr><td><strong>Settle</strong></td><td>Chain (StateAnchor, account, singletons)</td><td>Tamper-evident commitments and high-value settlement</td><td>Store raw telemetry or PHI</td></tr></tbody></table>
+<pre class="code" data-lang="mermaid">flowchart TB
+    subgraph DR[&quot;Device / runtime — own repos, own release trains&quot;]
+        SHIELD[&quot;xibalba-shield&lt;br/&gt;senses · contains · OPA policy · emits signed spans&quot;]
+        CORTEX[&quot;super-cortex&lt;br/&gt;hash-chained memory · 3D fabric · session Merkle root&quot;]
+    end
+    subgraph CORE[&quot;integrity-core — the protocol&quot;]
+        PACK[&quot;Pack&lt;br/&gt;Integrity Health first&quot;]
+        HOOK[&quot;IntegrityHook (Enforce)&lt;br/&gt;post-state C, revert on violation&quot;]
+        ORACLE[&quot;Oracle (Record)&lt;br/&gt;verify sig/leaf → epoch → anchor&quot;]
+        AIS[&quot;AIS (Learn)&lt;br/&gt;finite bounds only, never a permission&quot;]
+    end
+    CHAIN[&quot;Public chain (Base / EVM)&lt;br/&gt;StateAnchor, SovereignAgent, Singletons, Settlement&quot;]
+
+    SHIELD -- &quot;signed spans, local allow/deny&quot; --&gt; PACK
+    CORTEX -- &quot;session roots (not a verifier)&quot; --&gt; ORACLE
+    PACK --&gt; HOOK
+    HOOK -- &quot;admit / revert&quot; --&gt; CHAIN
+    ORACLE -- &quot;verified evidence&quot; --&gt; AIS
+    AIS -. &quot;widen finite bound only&quot; .-&gt; PACK
+    ORACLE -- &quot;anchorRoot&quot; --&gt; CHAIN</pre>
+<p>Shield can run with no Core; Super-Cortex can run with no Core. The closed loop is Shield and Super-Cortex both calling Core: local containment plus durable memory plus an account that cannot leave the box.</p>
+<p><strong>Shield</strong> (<code>xibalba-shield</code>, own repo) is a runtime security product that provides local process containment, response governance, OPA Rego policy evaluation, and signed telemetry span emission. It is not an on-chain protocol object.</p>
+<p><strong>Console</strong> (<code>integrity-console</code>, own repo) is an operator verification and governance interface providing unified surfaces (<code>view-graph</code>, <code>view-timeline</code>, <code>view-dialogue</code>, <code>view-fabric</code>). It is not an on-chain protocol object.</p>
+<p><strong>Super-Cortex</strong> (<code>super-cortex</code>, formerly <code>xibalba-cortex</code>, own repo) is Integrity v1&#x27;s persistent evidence and memory plane in the <strong>reference architecture</strong>. It provides a 3D neural knowledge graph, RFC 8628 agent pairing, session hash chaining, and Merkle root anchoring. A conforming enterprise deployment MAY substitute a certified store. Super-Cortex MUST NOT be a second verifier. The oracle verifies; Super-Cortex stores, indexes, and serves replay.</p>
+<p><strong>AIS</strong> is derived from verified evidence. It is a parameter of <span class="math-inline">C</span>, never a permission.</p>
+<hr>
+<h2 id="3-types">3. Types</h2>
+<h3 id="3-1-account-state">3.1 Account state</h3>
+<p>Let <span class="math-inline">X</span> be the finite set of EVM state assignments reachable by <span class="math-inline">A</span>.</p>
+<p>At step <span class="math-inline">k</span>:</p>
+<div class="math-block">x_k = (b_k, \ell_k, n_k, q_k, m_k, \pi_k, h_k) \in X</div>
+<table><thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead><tbody><tr><td><span class="math-inline">b</span></td><td>balances</td><td>Native and token balances controlled by <span class="math-inline">A</span></td></tr><tr><td><span class="math-inline">\ell</span></td><td>allowances</td><td>ERC-20 / operator approvals</td></tr><tr><td><span class="math-inline">n</span></td><td>nonce</td><td>Replay counter</td></tr><tr><td><span class="math-inline">q</span></td><td>meters</td><td>Remaining consumable units, keyed by meter id</td></tr><tr><td><span class="math-inline">m</span></td><td>modules</td><td>Installed ERC-7579 modules and their config</td></tr><tr><td><span class="math-inline">\pi</span></td><td>params</td><td>Operator / pack parameters (finite bounds, allowlists). Not the agent&#x27;s policy.</td></tr><tr><td><span class="math-inline">h</span></td><td><code>bytes32</code></td><td>StateAnchor head: commitment to durable memory</td></tr></tbody></table>
+<p>The agent policy (model + harness) is <strong>not</strong> a field of <span class="math-inline">x</span>. It is outside the TCB.</p>
+<p><code>kill_epoch</code> is a monotone meter on the account. An intent whose <code>kill_epoch</code> does not equal the account&#x27;s MUST fail.</p>
+<h3 id="3-2-action">3.2 Action</h3>
+<div class="math-block">a \in U = \{(\mathit{to}, \mathit{value}, \mathit{calldata}, \mathit{op})\}</div>
+<p><code>op</code> is call, delegatecall, or batch. A batch is one <span class="math-inline">a</span> whose components MUST each be mediated.</p>
+<h3 id="3-3-identity-the-3-tier-identity-and-actor-topology-built">3.3 Identity: The 3-Tier Identity and Actor Topology <code>[BUILT]</code></h3>
+<p>Constraints MUST be keyed by a durable agent id, not a raw key.</p>
+<pre class="code" data-lang="text">AgentId      = IntegrityDid | ERC8004TokenId
+IntegrityDid = &quot;did:integrity:&quot; || sha256(pubkey)
+ChainRef     = EIP155ChainId
+AccountRef   = CAIP10Account
+PackId       = name &quot;@&quot; semver
+MeterId      = bytes32</pre>
+<p><span class="math-inline">C</span> is a function of identity. Key rotation MUST NOT drop <span class="math-inline">C</span>. An implementation that binds <span class="math-inline">C</span> only to <code>msg.sender</code> when that sender is a rotatable EOA is non-conformant.</p>
+<p>The protocol defines a three-tier modular identity and actor stack:</p>
+<pre class="code" data-lang="mermaid">flowchart TD
+    T0[&quot;Tier 0: Off-Chain Cryptographic DID&lt;br/&gt;did:integrity:&lt;sha256(pubkey)&gt;&lt;br/&gt;Ed25519 keypair · zero-gas · RFC 8785 canonical JSON&quot;]
+    T1[&quot;Tier 1: On-Chain Actor &amp; Smart Account Stack&lt;br/&gt;AgentRegistry singleton · SovereignAgent / Safe+Safe7579&lt;br/&gt;IntegrityHook · IntegrityGuard · SafeAccountVerifier · TrustLayer singletons&quot;]
+    T2[&quot;Tier 2: Modular ERC-8004 / Agent0 Public Passport&lt;br/&gt;Public discovery layer · two-way DID backlink (RFC 8785)&lt;br/&gt;CAIP-10 registrations · Oracle-verified wallet_confined: true&quot;]
+
+    T0 -- &quot;Registers with Oracle &amp; binds CAIP-10&quot; --&gt; T1
+    T1 -- &quot;Enforces wallet confinement &amp; AIS&quot; --&gt; T2
+    T2 -. &quot;Resolves via DID service backlink&quot; .-&gt; T0</pre>
+<ol><li><strong>Tier 0: Gasless Off-Chain Ed25519 DID (<code>did:integrity:&lt;sha256(pubkey)&gt;</code>) <code>[BUILT]</code></strong></li></ol>
+<ul><li>Pure cryptographic root identity. Generated locally with zero gas cost.</li><li>Identified by <code>did:integrity:&lt;hex-sha256(ed25519_pubkey)&gt;</code>.</li><li>Used by autonomous agents for high-frequency signing of telemetry spans, BCC intent messages, and peer-to-peer agent negotiation over RFC 8785 canonical JSON (JCS).</li><li>Registered off-chain with the Integrity Oracle via <code>POST /v1/agent/register/offchain</code>.</li></ul>
+<ol><li><strong>Tier 1: On-Chain Actor &amp; Smart Account (<code>AgentRegistry</code> + <code>SovereignAgent</code> Wallet Stack) <code>[BUILT]</code></strong></li></ol>
+<ul><li>Enclosed on-chain execution identity on Base Sepolia (<code>chainId: 84532</code>) or target EVM network.</li><li>Keyed in the canonical <code>AgentRegistry</code> singleton (<code>isRegisteredAgent(address) -&gt; bool</code>).</li><li>All high-value or state-mutating actions execute through a policy-confined smart contract account: either <code>SovereignAgent.sol</code> or an enclosed Safe v1.4.1 account operating under the <code>Safe7579</code> adapter.</li><li>Enforced by the modular wallet security stack:</li><li><code>IntegrityHook.sol</code>: ERC-7579 execution hook evaluating pre/post-state constraints, spend limits, AIS reputation floors, and staking gates.</li><li><code>IntegrityGuard.sol</code>: Safe transaction guard preventing direct execution bypass or module tampering.</li><li><code>SafeAccountVerifier.sol</code>: Validates account mastercopy, threshold == 1, single EOA owner, <code>Safe7579</code> sole module, and active <code>IntegrityGuard</code>.</li><li>Trust Layer singletons (<code>StakeVault</code>, <code>AISRegistry</code>, <code>ActionAnchor</code>, <code>PolicyRegistry</code>, <code>TrustConfig</code>) provide shared economic staking and reputation enforcement.</li></ul>
+<ol><li><strong>Tier 2: Modular ERC-8004 / Agent0 Public Discovery Passport <code>[BUILT]</code></strong></li></ol>
+<ul><li>Standardized public discovery layer compliant with ERC-8004 (&quot;Trustless Agents&quot;) and the Agent0 ecosystem.</li><li>Pinned on Base Sepolia (<code>0x8004A818BFB912233c491871b3d84c89A494BD9e</code>).</li><li>Registration document schema (<code>registration-v1</code>) enforces a cryptographic two-way <code>DID</code> service backlink (<code>services[name=DID]</code> -&gt; <code>did:integrity:&lt;sha256&gt;</code>) and CAIP-10 <code>registrations</code> references (<code>eip155:&lt;chainId&gt;:&lt;registry&gt;</code>).</li><li>The registered <code>agentWallet</code> MUST point to the agent&#x27;s policy-confined smart account (e.g. <code>SovereignAgent</code>), not an unconfined EOA.</li><li>The Integrity Oracle verifies this binding via <code>POST /v1/agent/{id}/erc8004</code> and reports <code>wallet_confined: bool</code>.</li><li>Feedback and reputation sync through <code>IntegrityERC8004Registry.sol</code> / <code>ERC8004ReputationRegistry</code> with the <code>https://integrity.xibalba.solutions/ext/erc8004-ais-feedback-v1</code> extension.</li></ul>
+<h3 id="3-4-account-profiles-and-singleton-trust-layer-built">3.4 Account Profiles and Singleton Trust Layer <code>[BUILT]</code></h3>
+<p>Both enclosed enterprise agents and sovereign economic agents use the same hook, evidence format, memory chain, AIS inputs, and packs.</p>
+<table><thead><tr><th>Profile</th><th>Ownership</th><th>On-chain footprint</th><th>v1 commercial default</th></tr></thead><tbody><tr><td><strong>Enclosed enterprise agent</strong></td><td>Organization-owned ERC-4337 account; agent session keys; operator governance</td><td>Account + <code>StateAnchor</code> head + <code>AgentRegistry</code> record. No per-agent clone set.</td><td>Yes</td></tr><tr><td><strong>Sovereign economic agent</strong></td><td>Identity bound to agent-controlled <code>SovereignAgent</code> smart account</td><td><code>SovereignAgent</code> + <code>StateAnchor</code> head + <code>AgentRegistry</code> record + shared Trust Layer.</td><td>Optional, not required</td></tr></tbody></table>
+<h4 id="3-4-1-architecture-evolution-from-7-clones-to-singleton-trust-layer">3.4.1 Architecture Evolution: From 7 Clones to Singleton Trust Layer</h4>
+<p>Early prototype revisions (v0.3–v0.4) deployed 7 distinct EIP-1167 clones per agent (<code>ReputationRegistry</code>, <code>Slasher</code>, <code>VerifierRegistry</code>, <code>ComplianceGate</code>, <code>AgentProfile</code>).</p>
+<p>In v1.0, the protocol has unified around <strong>shared canonical singletons</strong> to eliminate per-agent deployment gas, consolidate liquidity, and eliminate fragmented state:</p>
+<ul><li><strong><code>AgentRegistry.sol</code></strong> (singleton): Authoritative registry of all active agents, controller addresses, lineage (<code>AgentLineageRegistry</code>), and policy configurations.</li><li><strong><code>StakeVault.sol</code></strong> (singleton): Shared economic collateral vault holding $ITK stake, locking stake per-action, managing the unbonding queue, and latching freeze state when AIS falls below threshold.</li><li><strong><code>AISRegistry.sol</code></strong> (singleton): On-chain score checkpoints (basis points, <code>0..10000</code>) and evidence Merkle roots posted by the Integrity Oracle.</li><li><strong><code>ActionAnchor.sol</code></strong> (singleton): Global Merkle root anchor recording verified action traces.</li><li><strong><code>PolicyRegistry.sol</code></strong> (singleton): Domain-level action graphs, risk weights, and policy modules.</li><li><strong><code>TrustConfig.sol</code></strong> (singleton): Governance-owned configuration linking the vault, policy registry, and reward modules.</li></ul>
+<p>For agents operating under the sovereign profile, the agent deploys its own <code>SovereignAgent</code> account and signs its own identity initialization. Enterprise agents utilize standard ERC-4337 or Safe accounts. Neither profile requires minting an NFT or deploying legacy clone sets.</p>
+<h3 id="3-5-reputation-parameter">3.5 Reputation parameter</h3>
+<p>Let <span class="math-inline">r \in [0,1]</span> be an attested score (AIS, or ERC-8004 if the operator pins it). For each numeric bound <span class="math-inline">c_i</span>:</p>
+<div class="math-block">c_i(r) = c_i^{\min} + r\,(c_i^{\max} - c_i^{\min}), \qquad c_i^{\max} &lt; \infty</div>
+<p>An implementation MUST reject configuration with <span class="math-inline">c_i^{\max} = \infty</span>. <span class="math-inline">r</span> MAY widen a bound. <span class="math-inline">r</span> MUST NOT remove a constraint. <span class="math-inline">r</span> MUST NOT change a pack <code>deny</code> into <code>allow</code>.</p>
+<h3 id="3-6-memory-commitment-partial">3.6 Memory commitment <code>[PARTIAL]</code></h3>
+<div class="math-block">h_{k+1} = H(h_k \,\|\, H(\delta_k))</div>
+<p><span class="math-inline">H</span> is a collision-resistant hash (SHA-256 or keccak256; a deployment MUST name one). Only <span class="math-inline">h_k</span> is required on-chain. Payload lives in the evidence plane, content-addressed by the leaf. Presenting a history inconsistent with <span class="math-inline">h_k</span> MUST fail verification.</p>
+<p>Genesis: registration SHOULD require a non-zero <span class="math-inline">h_0</span>. Enforcing <code>latestRoot != 0</code> at <code>registerPrimitives</code> and oracle ingest is <code>[PLANNED]</code> (P0).</p>
+<h3 id="3-7-domain-separator-built-bcc-path">3.7 Domain separator <code>[BUILT]</code> (BCC path)</h3>
+<p>An intent is valid in exactly one domain, exactly once.</p>
+<pre class="code" data-lang="text">Domain = lenpref(chainId) || lenpref(account) || lenpref(packId)
+       || lenpref(licenceOrMeterId) || lenpref(epoch)</pre>
+<p>Encoding MUST be length-prefixed. Concatenation of raw strings is non-conformant. Nonce MUST be strictly monotone in that domain.</p>
+<p>Live BCC commitments bind <code>chain_id</code> and <code>verifying_contract</code>. The ZK circuit also binds its intent commitment to the chain, receiving ReputationRegistry clone, and exact anchored BCC leaf. <code>[PLANNED]</code>: a kernel hook-frame replay-domain binding (the experimental slice&#x27;s was archived 2026-11-16).</p>
+<p><strong>Canonical JSON <code>[BUILT]</code>:</strong> all signed BCC/telemetry payloads use RFC 8785 JCS: Python consumers use <code>jcs</code> and the Rust oracle uses <code>serde_jcs</code>. This is the normative byte representation for number formatting and non-ASCII UTF-8.</p>
+<hr>
+<h2 id="4-constraint-grammar">4. Constraint grammar</h2>
+<p>This section is the v1 language. Packs compile into it. The hook evaluates it. Nothing else is enforced on-chain.</p>
+<h3 id="4-1-sign-convention">4.1 Sign convention</h3>
+<p>A constraint is <span class="math-inline">g : X \to \mathbb{R} \cup \{+\infty\}</span>.</p>
+<div class="math-block">g(x) \le 0 \quad\text{means satisfied.}</div>
+<p>The admissible set is</p>
+<div class="math-block">S_C = \{\, x \in X \mid g_i(x) \le 0 \text{ for all } i = 1,\ldots,m \,\}.</div>
+<p>The margin of a state is <span class="math-inline">\min_i (-g_i(x))</span>. The hook SHOULD expose per-<span class="math-inline">g_i</span> margin to the console.</p>
+<h3 id="4-2-abstract-syntax-partial">4.2 Abstract syntax <code>[PARTIAL]</code></h3>
+<pre class="code" data-lang="text">C            = g (&quot;,&quot; g)*
+g            = g_id &quot;:&quot; expr
+expr         = cmp | &quot;AND&quot; &quot;(&quot; expr (&quot;,&quot; expr)+ &quot;)&quot;
+             | &quot;OR&quot;  &quot;(&quot; expr (&quot;,&quot; expr)+ &quot;)&quot;   ; pack-local only; see 4.4
+cmp          = term op term
+op           = &quot;&lt;=&quot; | &quot;&gt;=&quot; | &quot;==&quot; | &quot;!=&quot;
+term         = UINT | ADDR | BYTES32 | BOOL
+             | state_ref | param_ref | call
+state_ref    = &quot;pre.&quot; path | &quot;post.&quot; path
+path         = &quot;balance&quot; &quot;[&quot; ADDR &quot;]&quot;
+             | &quot;allowance&quot; &quot;[&quot; ADDR &quot;]&quot; &quot;[&quot; ADDR &quot;]&quot;
+             | &quot;nonce&quot;
+             | &quot;meter&quot; &quot;[&quot; MeterId &quot;]&quot;
+             | &quot;module&quot; &quot;[&quot; ADDR &quot;]&quot; &quot;.installed&quot;
+             | &quot;head&quot;
+             | &quot;timestamp&quot;
+param_ref    = &quot;param.&quot; IDENT
+             | &quot;id.&quot; IDENT
+             | &quot;r&quot;
+call         = &quot;sum_out&quot; &quot;(&quot; window &quot;,&quot; destset &quot;)&quot;
+             | &quot;attestation_age&quot; &quot;(&quot; AgentId &quot;)&quot;
+             | &quot;owner_of&quot; &quot;(&quot; ADDR &quot;)&quot;</pre>
+<p><code>pre</code> is <span class="math-inline">x_k</span>. <code>post</code> is <span class="math-inline">T(x_k, a)</span>. A constraint that reads only <code>pre</code> and ignores <code>post</code> for a quantity the action can change is non-conformant for that quantity.</p>
+<p>The experimental kernel slice (<code>IntegrityKernel</code>, formerly <code>IntegrityKernelV1Experimental</code>) implemented a <strong>reduced</strong> grammar: native-value spend budget, a reputation-floor precondition, and a ZK-assurance-tier precondition. It was not this grammar. It was archived on 2026-11-16 and has no implementation on <code>main</code> (<code>docs/archive/2026-11/kernel-phase1/README.md</code>). Status: <code>[PLANNED]</code>. It MUST NOT write storage in <code>preCheck</code>. Projected checks belong in <code>preCheck</code>; conservation of realized post-state belongs in <code>postCheck</code>.</p>
+<h3 id="4-3-concrete-yaml-pack-surface">4.3 Concrete YAML (pack surface)</h3>
+<pre class="code" data-lang="yaml">pack: integrity-health@1.0.0
+constraints:
+  - id: daily_outbound
+    g: post.sum_out(24h, NOT allowlist) - param.daily_cap
+  - id: meter_nonneg
+    g: 0 - post.meter[ehr_write]
+  - id: no_self_uninstall
+    g: 1 - post.module[KERNEL].installed
+  - id: spend_cap
+    g: (pre.balance[USDC] - post.balance[USDC]) - param.max_usdc_out</pre>
+<p><code>g</code> in YAML is the real-valued expression. Compilers MUST NOT invert the sign. Unknown identifiers MUST fail closed.</p>
+<h3 id="4-4-conjunction-at-the-hook">4.4 Conjunction at the hook</h3>
+<div class="math-block">V(a,x,C) = \prod_{i=1}^{m} \mathbf{1}[g_i(T(x,a)) \le 0] \in \{0,1\}</div>
+<p><code>OR</code> MAY appear <strong>inside a single pack-local</strong> <span class="math-inline">g_i</span>. <code>OR</code> MUST NOT be used to let one pack disable another pack&#x27;s <span class="math-inline">g_j</span>.</p>
+<p><strong>Hook wins:</strong> if Rego returns allow and <span class="math-inline">V = 0</span>, the transition MUST NOT commit.</p>
+<h3 id="4-5-primitive-families-partial">4.5 Primitive families <code>[PARTIAL]</code></h3>
+<p><strong>Value conservation (settlement).</strong> For participant set <span class="math-inline">P</span> and declared fee to a named recipient:</p>
+<div class="math-block">\sum_{j \in P} \Delta b_j = 0</div>
+<p>A transition that mints, burns, or leaks MUST revert unless a constraint <strong>explicitly</strong> authorizes that class. Native ETH balance alone is non-conformant as the conservation check; ERC-20/721 and allowances MUST be in scope for any pack that claims value conservation.</p>
+<p><strong>Monotone meters.</strong> Working <strong>and</strong> inbound orders update meters in <code>preCheck</code> on the projected book. A reject rolls the projection back. Caps apply to working + filled, not filled only.</p>
+<div class="math-block">q_{k+1} = q_k - c_k,\quad c_k \ge 0,\quad q_{k+1} \ge 0,\quad q_0 = Q</div>
+<p>A meter MUST NOT increase except by an operator-signed refill that is itself constrained. AIS MUST NOT refill a loss cap.</p>
+<p><strong>Replay domain.</strong></p>
+<div class="math-block">n_{k+1} &gt; n_k,\qquad d(a) = d_{\text{declared}}</div>
+<p><strong>Delegation / license (<code>delegation_active</code>).</strong> A principal-to-agent grant: <code>(principal, agent, scope_hash) → {active, expires, meter}</code>. The hook MUST treat a missing, expired, revoked, or out-of-scope grant as <span class="math-inline">V = 0</span> when the installed pack requires one. Integrity Health&#x27;s <code>SmartBAA</code> is the first on-chain body of this family (covered entity = principal, business associate = agent, PHI class = scope). An IP-license pack is the same family with a different principal and scope. Packs MUST NOT each invent a second <code>checkAccess</code> idiom that bypasses this family.</p>
+<p>Status: <code>[PARTIAL]</code> — <code>SmartBAA</code> is <code>[BUILT]</code>; a kernel-level view <code>(principal, agent, scope_hash)</code> that both Health and IP consume is <code>[PLANNED]</code>. The client supplies <code>covered_entity_address</code> only as a lookup key: BCC authorization and Healthcare oracle scoring resolve the exact live <code>(covered entity, SovereignAgent)</code> pair through <code>CoveredEntityRegistry</code> and <code>SmartBAAFactory</code>, failing closed when it is not bound. Generalizing that relationship into the cross-domain authority view remains planned.</p>
+<p><strong><code>scope</code> is not yet defined — a known hole, not an omission by oversight.</strong> This section requires an &quot;out-of-scope grant&quot; check and a &quot;PHI class = scope&quot; / &quot;IP-license = same family, different scope&quot; reading, but never says what a scope <em>is</em> beyond an opaque <code>scope_hash</code>. Containment against an opaque value is undecidable, so today&#x27;s enforcement is exactly what <code>SmartBAA</code> hard-codes, not a general capability check. A typed capability algebra is proposed in <a href="design/spec-open-definitions.md"><code>docs/design/spec-open-definitions.md</code></a> §1 and must land before the <code>[PLANNED]</code> kernel-level view above is implementable.</p>
+<h3 id="4-6-gas-bound">4.6 Gas bound</h3>
+<p>Each <span class="math-inline">g_i</span> MUST declare <code>gas_max</code>. Evaluation MUST use a metered call. Exceeding <code>gas_max</code> MUST be treated as <span class="math-inline">V = 0</span>, not as &quot;skip this constraint.&quot;</p>
+<p>The v3 whitepaper&#x27;s 40k <code>preCheck</code> budget is a target, not a silent requirement of this spec. For the current reference implementation, the measured target profile is one direct, cold external <code>IntegrityKernel.preCheck</code> call, including call and <code>onlyBoundAccount</code> modifier overhead, with the registry-adapter and tracked-token branches disabled. It includes the cached reputation/assurance checks, native-budget checks, and balance snapshot; it excludes the account&#x27;s hook-dispatch overhead, <code>postCheck</code>, snapshot refresh, token balance calls, adapter calls, and transaction intrinsic gas. The compiler, optimizer, EVM revision, cold/warm state, enabled branches, and measured commit MUST accompany any exact figure.</p>
+<p>Live reads of foreign registries MUST be amortized (epoch snapshots) or named as a separate adapter-inclusive profile outside that 40k target. Such an exception MUST identify the adapter, enabled branches, measurement profile, and regression band; it MUST NOT be described as a protocol maximum or generalized to arbitrary adapters. A self-declared adapter stipend is only the requested call stipend unless the caller also enforces a reviewed maximum and reserve; it is not by itself an end-to-end operation gas bound. Do not claim both a 40k cap and live ERC-8004 / licence TBA reads on every call.</p>
+<h3 id="4-7-forbidden">4.7 Forbidden</h3>
+<p>A conformant compiler MUST reject:</p>
+<ul><li>Unbounded loops over attacker-supplied arrays</li><li>Reads of <code>block.coinbase</code> or <code>prevrandao</code> to decide <span class="math-inline">g_i</span></li><li>A constraint that is satisfied when evaluation throws</li><li><span class="math-inline">c^{\max} = \infty</span></li><li>Relaxation of another pack&#x27;s <span class="math-inline">g_j</span></li><li>World-event predicates (&quot;the election result is X&quot;)</li><li>Fail-open on oracle-cursor staleness, for the value path</li><li>Storage writes in <code>preCheck</code></li></ul>
+<hr>
+<h2 id="5-verification-rule">5. Verification rule</h2>
+<p>Let <span class="math-inline">T</span> be the EVM transition of <span class="math-inline">A</span>.</p>
+<div class="math-block">x_{k+1} =
+\begin{cases}
+T(x_k, a_k) &amp; \text{if } V(a_k, x_k, C) = 1 \\
+x_k &amp; \text{otherwise (revert)}
+\end{cases}</div>
+<p>Rejection MUST be a revert. It MUST NOT be a compensating transaction.</p>
+<p><code>preCheck</code> MAY reject on <strong>projected</strong> post-state. <code>postCheck</code> MUST re-check conserved quantities on the <strong>realized</strong> post-state and revert if they do not hold. A pass in <code>preCheck</code> and a fail in <code>postCheck</code> MUST leave <span class="math-inline">x_{k+1} = x_k</span>.</p>
+<p>This is the errata to whitepaper v3 Appendix A. Projected arithmetic is not <span class="math-inline">T(x,a)</span>. Claiming Proposition 1 of a <code>preCheck</code>-only native-balance gate is non-conformant.</p>
+<pre class="code" data-lang="mermaid">flowchart LR
+    A[&quot;Proposed action a_k&quot;] --&gt; B{&quot;preCheck: g_i(projected&lt;br/&gt;post-state) ≤ 0 ∀i ?&quot;}
+    B -- &quot;no — revert&quot; --&gt; X1[&quot;x_k+1 = x_k&quot;]
+    B -- &quot;yes&quot; --&gt; C[&quot;Execute T(x_k, a_k)&quot;]
+    C --&gt; D{&quot;postCheck: conserved&lt;br/&gt;quantities on realized&lt;br/&gt;post-state hold?&quot;}
+    D -- &quot;no — revert&quot; --&gt; X2[&quot;x_k+1 = x_k&quot;]
+    D -- &quot;yes — commit&quot; --&gt; E[&quot;x_k+1 = T(x_k, a_k)&quot;]</pre>
+<h3 id="5-1-forward-invariance-planned-as-machine-checked">5.1 Forward invariance <code>[PLANNED]</code> as machine-checked</h3>
+<p><strong>Proposition 1.</strong> If <span class="math-inline">x_0 \in S_C</span> and every transition of <span class="math-inline">A</span> is mediated by the rule above, then <span class="math-inline">x_k \in S_C</span> for all <span class="math-inline">k \ge 0</span>, for every sequence <span class="math-inline">a_0, a_1, \ldots</span>, including adversarial sequences and sequences signed with stolen keys.</p>
+<p>Proof is induction on <span class="math-inline">k</span>: a revert leaves <span class="math-inline">x_k \in S_C</span>; an accept has <span class="math-inline">T(x_k,a_k) \in S_C</span> by definition of <span class="math-inline">V</span>.</p>
+<p>Proposition 1 does not say <span class="math-inline">S_C</span> is a good box. A catastrophe that <span class="math-inline">C</span> permits is permitted with assurance. If any of M1–M5 fail, Proposition 1 is <strong>void</strong>, not degraded.</p>
+<p>Independent audit plus a machine-checked argument is the named gate for non-draft v1.0.0.</p>
+<h3 id="5-2-placement-planned">5.2 Placement <code>[PLANNED]</code></h3>
+<p>The kernel MUST be an ERC-7579 type-4 hook. <code>preCheck</code> / <code>postCheck</code> MUST run on every execution path named in §6, including <code>executeFromExecutor</code> and module install/remove.</p>
+<p>Live production <code>SovereignAgent.execute()</code> does <strong>not</strong> dispatch through this full ERC-7579 hook. A disclosed, non-production reference instance (<code>IntegrityKernel</code> + <code>IntegrityAccount</code>, Halmos-checked) was archived on 2026-11-16; its source is no longer on <code>main</code>, and its Base Sepolia contracts (<code>deployments.baseSepolia.json</code> → <code>experimentalPhase1Reference</code>) remain deployed but unused (<code>docs/archive/2026-11/kernel-phase1/README.md</code>). A reference instance MUST NOT be wired to any real registered agent, and MUST NOT be referenced by <em>production</em> deployment tooling. §5.3 describes the narrower mechanism actually live in production accounts today.</p>
+<p>A companion type-1 validator MAY enforce session keys. Rich policy that reads foreign account state MUST NOT be placed only in the ERC-4337 validation phase.</p>
+<h3 id="5-3-live-execution-anchor-policy-hooks-built">5.3 Live execution/anchor policy hooks <code>[BUILT]</code></h3>
+<p>Distinct from, and narrower than, §5.2&#x27;s full ERC-7579 kernel hook: live <code>SovereignAgent.execute()</code> and <code>StateAnchor.anchorRoot()</code> each consult a swappable, fail-closed policy contract set by the controller -- <code>IExecutionPolicy</code> / <code>IAnchorPolicy</code> (<code>contracts/src/core/</code>), installed via <code>setExecutionPolicy</code> / <code>setAnchorPolicy</code>. <code>address(0)</code> on the host is the skip path (no policy installed, matching today&#x27;s already-registered agents). Once a policy is set, a <code>false</code> return or a revert from it MUST fail closed: no value movement, no root write, no nonce consumption.</p>
+<p>This is real and already live in <code>SovereignAgent.sol</code> / <code>StateAnchor.sol</code>&#x27;s deployed-going-forward source, not a proposal. <code>ConstraintExecutionPolicy.sol</code> (AIS floor, native-value cap, target allowlist, ERC-20/721 caps) and <code>AllowlistAnchorPolicy.sol</code> are working reference implementations, covered by <code>contracts/test/PolicyHooks.t.sol</code>.</p>
+<p><strong>Deployed-vs-live gap, disclosed, not glossed over:</strong> <code>SovereignAgent</code> / <code>StateAnchor</code> are deployed directly per agent, not behind a shared upgradeable proxy (§16&#x27;s file-authority table&#x27;s own upgradeability item; <code>docs/design/upgradeability-decision.md</code>; <code>MAINNET_READINESS.md</code> P0-6). This hook therefore only reaches an agent whose registration happened after the hook landed in the bytecode that registration deployed. Verified directly on-chain 2026-08-31: <code>executionPolicy()</code> reverts against all three currently-registered real agents on Base Sepolia (<code>xibalba.integrity</code>, <code>xibalba-health</code> -- registered 2026-08-30, still predates this -- and <code>xibalba-quant</code>), while a genuinely-supported call (<code>ais()</code>) succeeds against the same contracts, confirming the gap is &quot;feature absent from that deployment,&quot; not a network or ABI-mismatch artifact. A new registration going forward gets the hook automatically; an already-registered agent cannot, short of resolving the open upgradeability decision.</p>
+<hr>
+<h2 id="6-complete-mediation-planned">6. Complete mediation <code>[PLANNED]</code></h2>
+<p>Let <span class="math-inline">E</span> be the set of paths that can change <span class="math-inline">A</span>&#x27;s state. The hook MUST be invoked on every path in <span class="math-inline">E</span>.</p>
+<p>A deployment is <strong>mediated</strong> only if all of the following hold:</p>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody><tr><td>M1</td><td>No value that the operator treats as in-scope MAY live in an EOA or contract the hook does not mediate.</td></tr><tr><td>M2</td><td>Direct execute, executor modules, fallback handlers, and batches MUST route through the hook.</td></tr><tr><td>M3</td><td>Module install and removal MUST be constrained transitions.</td></tr><tr><td>M4</td><td>Kernel removal MUST be delayed and multi-authorized. Immediate self-uninstall MUST revert.</td></tr><tr><td>M5</td><td>A new executor that bypasses the hook MUST be uninstallable only via M3–M4, and MUST fail mediation audit until removed.</td></tr></tbody></table>
+<p>Implementations SHOULD expose a <code>mediation_ok</code> boolean from a published audit checklist. Console SHOULD refuse &quot;enclosed&quot; labeling when <code>mediation_ok</code> is false.</p>
+<p>The archived experimental slice covered <code>execute()</code> against three reference conditions and a <strong>single-signer</strong> kernel swap, a disclosed reduction of M4. No implementation exists on <code>main</code> since 2026-11-16.</p>
+<p>Re-enable of a killed account is <code>Escalate</code> class <code>reenable</code>: two humans, or one human plus delay. The agent MUST NOT clear its own kill.</p>
+<hr>
+<h2 id="7-packs">7. Packs</h2>
+<p>v1 extension surface. A pack compiles to <span class="math-inline">C</span> plus off-chain policy. A new vertical that needs a new daemon, a new brand, or a fourth verb is not a pack.</p>
+<h3 id="7-0-three-layers-two-extra-words">7.0 Three layers, two extra words</h3>
+<p>Keep this small:</p>
+<pre class="code" data-lang="text">integrity-core          protocol: hook + oracle + singletons + pack loader     (this repo)
+xibalba-shield          product: device / network agent / OPA containment      (own repo)
+super-cortex            product: evidence / memory plane / 3D knowledge fabric  (own repo)</pre>
+<p>Inside Core, specialization is only a <strong>pack</strong>. An <strong>adapter</strong> is not a pack and not a product. It is a translator that maps someone else&#x27;s schema into a pack. It adds no constraint of its own.</p>
+<table><thead><tr><th></th><th>Lives</th><th>Example</th></tr></thead><tbody><tr><td><strong>Pack</strong></td><td><code>integrity-core</code> folder</td><td>Integrity Health (<code>packs/integrity-health</code>)</td></tr><tr><td><strong>Adapter</strong></td><td>next to a pack, or in a product SDK</td><td>AP2 mandate → Integrity Health params; FIX → <code>packs/trading</code>; loopback test broker</td></tr><tr><td><strong>Product</strong></td><td>its own GitHub repo</td><td>Shield, Super-Cortex, Integrity Console</td></tr></tbody></table>
+<p>Integrity Health is the first pack, not an adapter and not Shield. <code>contracts/src/health/</code> (<code>CoveredEntityRegistry</code>, <code>SmartBAA</code>, <code>ComplianceGate</code>, <code>EHRGate</code>, <code>HIPAAGuardrailRegistry</code>) is the current <code>[PARTIAL]</code> on-chain body of that pack. The pack-folder form is <code>[PLANNED]</code>. Shield <strong>loads</strong> Integrity Health; it does not own it.</p>
+<p>If a new venue or mandate format needs a new constraint id, write an adapter. If a new vertical needs new constraints, write a pack. If it needs a new daemon or a new brand, it is a product repo, not Core.</p>
+<h3 id="7-1-schema-planned-as-the-only-extension-api">7.1 Schema <code>[PLANNED]</code> as the only extension API</h3>
+<pre class="code" data-lang="text">packs/&lt;id&gt;/
+  pack.yaml           required — manifest
+  constraints.yaml    required — compile input for the hook
+  policy.rego         required — off-chain allow / deny / escalate
+  redact.rules        required — what Path A may upload
+  controls.yaml       required — officer-facing form fields
+  profile.md          informative — vertical map (HIPAA, IP, trading, …)
+  views.yaml          informative — console widgets</pre>
+<pre class="code" data-lang="yaml"># pack.yaml
+id: integrity-health
+version: 1.0.0
+kernel: &quot;&gt;=1.0.0-draft &lt;2.0.0&quot;
+gas_max_total: 350000
+params:
+  daily_cap:        { type: uint256, c_max: &quot;50000e6&quot;, default: &quot;10000e6&quot; }
+  min_ais:          { type: uint256, c_max: 1000,      default: 600 }
+  license_required: { type: bool,                      default: true }
+escalation:
+  classes: [ehr_write, baa_missing, license_missing]
+  timeout: deny          # MUST be deny; allow is non-conformant
+redact: enforce          # off | warn | enforce — see §7.7
+domain: server-resolved  # never client-asserted</pre>
+<p><code>PackId = id@version</code> plus content hash. Pin in the account. Installing or replacing a pack is a constrained transition. No on-chain adapter registry is required for v1. <code>[PLANNED]</code>: attested registry.</p>
+<p><code>constraints.yaml</code> is the authoring syntax of §4.3. The compiler <strong>lowers</strong> each <code>g</code> onto a closed family (§7.6). If it cannot lower, it rejects. The hook does not interpret arbitrary YAML on-chain.</p>
+<p><code>controls.yaml</code> is the officer UI contract: one form field per <code>params.*</code> id, labels in the buyer&#x27;s language, no Solidity. Natural language MAY fill the form. The form is what gets hashed and pinned.</p>
+<p><code>policy.rego</code> input/output is the live BCC shape:</p>
+<pre class="code" data-lang="text">input:  { agent_id, intent_type, covered_entity_address, pack_id, ... }
+output: { allow: bool, violations: [string], escalate: string|null, requires_delegation: bool }</pre>
+<p><code>requires_delegation</code> is the generic flag. Integrity Health&#x27;s <code>requires_baa</code> is an alias of it, not a second protocol.</p>
+<h3 id="7-2-obligations-was-v3-adapter-r1-r5">7.2 Obligations (was v3 adapter R1–R5)</h3>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody><tr><td>R1 Determinism</td><td>Same payload → same <span class="math-inline">C</span>. No time/coinbase/rand in compilation.</td></tr><tr><td>R2 Totality</td><td>Unparseable input → reject with a typed reason. Never silent accept.</td></tr><tr><td>R3 Bounded cost</td><td>Declared <code>gas_max</code>. No unbounded attacker iteration.</td></tr><tr><td>R4 Conservatism</td><td>MAY only add constraints. MUST NOT relax another pack or the base mandate.</td></tr><tr><td>R5 Identity</td><td>Published with source, machine-readable semantics, and a version hash the account pins.</td></tr></tbody></table>
+<h3 id="7-3-composition">7.3 Composition</h3>
+<p><strong>Proposition 2.</strong> If packs <span class="math-inline">1..n</span> induce <span class="math-inline">C_1..C_n</span>, then</p>
+<div class="math-block">S_{C} = \bigcap_{j=1}^{n} S_{C_j} \subseteq S_{C_j} \quad \forall j.</div>
+<p>Installing a pack MUST NOT enlarge the reachable set. Liveness MAY degrade. Console SHOULD show the binding <span class="math-inline">g_i</span> (least margin).</p>
+<pre class="code" data-lang="mermaid">flowchart TB
+    P1[&quot;Pack 1 constraints → S_C1&quot;]
+    P2[&quot;Pack 2 constraints → S_C2&quot;]
+    P3[&quot;Pack n constraints → S_Cn&quot;]
+    INT[&quot;Admissible set S_C = S_C1 ∩ S_C2 ∩ ... ∩ S_Cn&quot;]
+    P1 --&gt; INT
+    P2 --&gt; INT
+    P3 --&gt; INT
+    INT --&gt; HOOK[&quot;Hook evaluates V(a,x,C) over S_C&quot;]
+    HOOK -.-&gt;|&quot;installing a pack can only shrink S_C, never enlarge it&quot;| INT</pre>
+<h3 id="7-4-policy-vs-constraints">7.4 Policy vs constraints</h3>
+<p><code>policy.rego</code> MAY <code>allow</code>, <code>deny</code>, or <code>escalate</code> off-chain or pre-hook. It MUST NOT authorize a transition that any installed <span class="math-inline">g_i</span> rejects. Hook wins. Rego is never compiled to Solidity.</p>
+<h3 id="7-5-compiler-planned">7.5 Compiler <code>[PLANNED]</code></h3>
+<p>Off-chain, in <code>integrity-sdk</code> (or a small <code>pack-compiler</code> module in <code>integrity-core</code>). Deterministic (R1). Unparseable input → typed reject, never accept (R2). The compiler MUST NOT emit a new Solidity contract per pack.</p>
+<pre class="code" data-lang="text">compile(pack_dir, param_values) -&gt; Result
+  ok:
+    pack_id, pack_hash, kernel_range
+    constraints: [ConstraintRecord]
+    policy_hash, redact_hash, controls_hash
+    gas_max_total
+  err:
+    code: unknown_id | cannot_lower | unbounded | c_max_infinite
+        | relaxes_other_pack | gas_max_missing | redact_required
+    path, message</pre>
+<p><code>ConstraintRecord</code> is what the hook stores. Closed v1 families — YAML may grow; this enum MUST NOT change without a spec revision:</p>
+<table><thead><tr><th>Family</th><th>Meaning</th><th>Status</th></tr></thead><tbody><tr><td><code>native_value_budget</code></td><td>per-op + cumulative wei</td><td><code>[PLANNED]</code> (experimental kernel archived 2026-11-16)</td></tr><tr><td><code>token_out_cap</code></td><td>ERC-20/721 out, allowlist dest</td><td><code>[PLANNED]</code></td></tr><tr><td><code>meter</code></td><td>monotone remaining units</td><td><code>[PLANNED]</code></td></tr><tr><td><code>reputation_floor</code></td><td>snapshot score ≥ min</td><td><code>[PLANNED]</code> (experimental kernel archived 2026-11-16)</td></tr><tr><td><code>assurance_tier</code></td><td>ZK-boost / tier required</td><td><code>[PLANNED]</code> (experimental kernel archived 2026-11-16)</td></tr><tr><td><code>module_installed</code></td><td>kernel cannot self-uninstall</td><td><code>[PLANNED]</code></td></tr><tr><td><code>delegation_active</code></td><td>principal→agent grant in scope</td><td><code>[PARTIAL]</code> — SmartBAA body <code>[BUILT]</code>; kernel view <code>[PLANNED]</code></td></tr></tbody></table>
+<pre class="code" data-lang="mermaid">flowchart LR
+    FORM[&quot;Officer form&lt;br/&gt;controls.yaml&quot;] --&gt; YAML[&quot;constraints.yaml + params&quot;]
+    YAML --&gt; COMP[&quot;compile()&quot;]
+    COMP --&gt;|cannot lower| REJ[&quot;typed reject&quot;]
+    COMP --&gt; REC[&quot;ConstraintRecord[] + pack_hash&quot;]
+    REC --&gt; PIN[&quot;account pins hash&quot;]
+    PIN --&gt; HOOK[&quot;hook evaluates families&quot;]
+    REGO[&quot;policy.rego&quot;] --&gt; BCC[&quot;BCC / OPA&quot;]
+    BCC --&gt; HOOK</pre>
+<h3 id="7-6-first-packs-informative">7.6 First packs (informative)</h3>
+<table><thead><tr><th>Pack</th><th>Question</th><th>Phase</th></tr></thead><tbody><tr><td>stub</td><td>Can the loop run?</td><td>1</td></tr><tr><td><code>integrity-health@*</code></td><td>May this principal touch PHI?</td><td>2</td></tr><tr><td><code>agents@*</code></td><td>Is this workload a principal at all?</td><td>3</td></tr><tr><td><code>ip-license@*</code></td><td>May this principal read, infer from, or train on this proprietary scope?</td><td>3</td></tr><tr><td><code>trading@*</code></td><td>May this approved principal spend at this venue, this size, still alive?</td><td>3+</td></tr><tr><td><code>markets@*</code></td><td>May this principal list, bid, or settle in an AIS-gated market?</td><td>3+</td></tr><tr><td><code>eu-ai-act@*</code></td><td>Optional profile</td><td>only if a buyer asks</td></tr></tbody></table>
+<p><code>ip-license</code> and <code>markets</code> are packs. They are not kernel types. v3.2 Metered IP (ERC-6551 licence TBAs, ATCP/IP, adapter marketplace) remains archive; the access-gating pack does not require it. Existing <code>IntegrityMarket.sol</code> / <code>A2ACapitalPool.sol</code> stay in the repo as the first on-chain body of <code>markets@*</code>, not as v1 spine.</p>
+<h3 id="7-7-redaction-obligation-partial">7.7 Redaction obligation <code>[PARTIAL]</code></h3>
+<p><code>pack.yaml</code> <code>redact</code> is one of <code>off | warn | enforce</code>.</p>
+<table><thead><tr><th>Mode</th><th>Path A unsigned/unredacted payload</th></tr></thead><tbody><tr><td><code>off</code></td><td>Accept (non-regulated packs only)</td></tr><tr><td><code>warn</code></td><td>Accept and mark the package <code>redact_incomplete</code></td></tr><tr><td><code>enforce</code></td><td>BCC and the oracle MUST reject. SDK constructor defaults MUST NOT be able to override this.</td></tr></tbody></table>
+<p>Integrity Health and <code>ip-license</code> MUST ship <code>redact: enforce</code>. A deployment that claims either pack while Path A can upload raw PHI or proprietary content is non-conformant.</p>
+<p><strong>Disclosed gap:</strong> <code>integrity-sdk</code> integrations (<code>IntegrityOpenAI</code>, <code>IntegrityLangChainCallback</code>) default <code>redact_phi=False</code>. The SDK cannot infer the installed pack. Until BCC/oracle enforce <code>redact: enforce</code> server-side, default-off redaction is a Health and IP blocker, not an SDK preference. <code>trace_run</code> redacts unconditionally; the named integrations do not.</p>
+<hr>
+<h2 id="8-evidence-plane-oracle-and-hybrid-ledger-partial">8. Evidence plane, oracle, and hybrid ledger <code>[PARTIAL]</code></h2>
+<h3 id="8-1-split-of-duties">8.1 Split of duties</h3>
+<table><thead><tr><th>Job</th><th>Who</th></tr></thead><tbody><tr><td>Ingest, store, index, redact, replay</td><td>Cortex (reference) or a conforming store</td></tr><tr><td>Verify signatures, proofs, heads; advance <code>oracle_verified</code>; submit roots</td><td>Oracle</td></tr><tr><td>Hold <span class="math-inline">h_k</span> and settle value</td><td>Chain</td></tr></tbody></table>
+<p>The oracle MUST NOT be renamed Cortex. Cortex MUST NOT submit roots except through the oracle, other than a documented disaster-recovery path that is itself audited.</p>
+<h3 id="8-2-ingest-contract-the-dual-span-rule">8.2 Ingest contract (the dual-span rule)</h3>
+<p>Two pipes exist. They MUST NOT be confused.</p>
+<table><thead><tr><th>Path</th><th>Transport</th><th>May feed AIS?</th><th>Notes</th></tr></thead><tbody><tr><td><strong>A — signed ingest</strong></td><td>HTTP <code>POST /v1/telemetry/ingest</code> (or BCC intercept)</td><td>Yes</td><td>Only AIS input. Oracle re-derives numeric signals; client <code>derived_signals</code> are audit-only. <code>[BUILT]</code></td></tr><tr><td><strong>B — OTLP</strong></td><td>gRPC <code>:4317</code></td><td>No</td><td>Operator traces. Unauthenticated. Stored separately. <code>[BUILT]</code></td></tr></tbody></table>
+<p><code>otel_spans</code> on a signed Path A request are <strong>not</strong> the Path B OTLP table. Integrators MUST NOT score Path B as AIS. A signed-OTLP bridge is optional and MUST carry <code>integrity.agent.id</code> plus a signature before it may become Path A.</p>
+<pre class="code" data-lang="mermaid">flowchart LR
+    SDK[&quot;SDK / Shield / agent&quot;] --&gt; A[&quot;Path A — signed ingest&lt;br/&gt;POST /v1/telemetry/ingest&quot;]
+    SDK --&gt; B[&quot;Path B — OTLP gRPC :4317&lt;br/&gt;unauthenticated&quot;]
+    A --&gt; AIS[&quot;May feed AIS&quot;]
+    B --&gt; OPS[&quot;Operator traces only&lt;br/&gt;never AIS&quot;]</pre>
+<p>OpenTelemetry is the canonical collection convention. Integrity-specific attributes (agent id, pack id, policy version, decision, approval, tool, evidence hash) ride on the span. Hierarchical convention, informative: <code>agent.run</code> → <code>agent.plan_and_reason</code> (<code>agent.thought</code>) → <code>agent.execute_tool</code> (<code>gen_ai.*</code>).</p>
+<p>When the installed pack sets <code>redact: enforce</code> (§7.7), PHI and proprietary content MUST be redacted before Path A egress, and BCC/oracle MUST reject an unredacted Path A package. SDK constructor flags MUST NOT override a pack <code>enforce</code>. <code>[PARTIAL]</code> — see §7.7 disclosed gap.</p>
+<h3 id="8-3-package-and-verify">8.3 Package and verify</h3>
+<pre class="code" data-lang="text">Package = {
+  agent_id, account, pack_id, domain,
+  leaf,           # H(span)
+  head_claimed,   # claimed h_k
+  span_or_proof,  # redacted span XOR zk public inputs + proof
+  decision,       # allow | deny | escalate | resolved
+  V_reasons[],
+  cursor,
+  sig
+}</pre>
+<p>In default mode the SDK MAY send a redacted span. In <code>profile: zk</code> the SDK MUST NOT send raw regulated content.</p>
+<p>The oracle MUST:</p>
+<ol><li>Check <code>sig</code> against the agent&#x27;s current keys (<code>sha256(pubkey)</code> matches <code>AgentId</code>).</li><li>Check <code>domain</code> and nonce.</li><li>Check <code>leaf</code> inclusion against <code>head_claimed</code>, or verify the ZK statement.</li><li>Reject if <code>head_claimed</code> is not a descendant of the last accepted head (no forks).</li><li>Independently re-derive any numeric signals used as AIS inputs. <code>[BUILT]</code> for entropy/grounding/sacrifice on Path A.</li><li>Advance <code>oracle_verified</code>.</li><li>Submit <code>anchorRoot</code> to StateAnchor. After inclusion, advance <code>chain_anchored</code>.</li></ol>
+<p>High-risk actions, approvals, policy changes, and incidents SHOULD be anchored immediately. Low-value spans MAY batch. Cadence is a deployment parameter.</p>
+<h3 id="8-4-cursors">8.4 Cursors</h3>
+<pre class="code" data-lang="text">Cursor = observed | oracle_verified | chain_anchored</pre>
+<p>Always <span class="math-inline">\textit{chain_anchored} \le \textit{oracle_verified}</span>.</p>
+<p>Policy that evaluates a decision MUST record the cursor pair it used. A later, more authoritative epoch that would have denied MUST be attributable to those decisions (replay), not silently overwritten.</p>
+<p>Stale cursor on a value-increasing path MUST fail closed when the pack requires a fresh cursor. Reduce-only MAY remain open if <code>allow_reduce_on_stale = 1</code>.</p>
+<h3 id="8-5-cortex-responsibilities-reference">8.5 Cortex responsibilities (reference)</h3>
+<ul><li>Canonical event ingestion from SDK, Shield, tool gateways, and account receipts.</li><li>Persistent agent memory as an append-only commitment chain.</li><li>Evidence bundles for audit, incident response, and model evaluation.</li><li>Derived features for AIS.</li><li>Cursor management.</li><li>Policy and pack version pinning.</li><li>Replay APIs: what the agent knew, which policy applied, what it attempted, and why it was allowed or denied.</li></ul>
+<p>Cortex MAY inform a future action. The hook decides whether a specific value-moving action commits.</p>
+<h3 id="8-6-cortex-reference-implementation-disclosed-anchoring-gaps-partial">8.6 Cortex reference implementation — disclosed anchoring gaps <code>[PARTIAL]</code></h3>
+<p>The reference evidence store&#x27;s local hash-chain and session-Merkle-root construction (§3.6) are <code>[BUILT]</code> and independently sound, but the step that anchors a Cortex session root into this protocol&#x27;s on-chain commitment (§8.3) has four open, named gaps. A deployment MUST NOT claim &quot;session evidence anchored and ancestry-verified end to end&quot; until these are closed.</p>
+<table><thead><tr><th>Gap</th><th>What&#x27;s true today</th><th>Why it matters</th></tr></thead><tbody><tr><td>Hash-space mismatch</td><td>Cortex&#x27;s session Merkle root is a sorted-pair root over <strong>SHA-256</strong> leaves. This protocol&#x27;s on-chain <code>StateAnchor</code>/<code>TrustVault</code> convention is a sorted-pair root over <strong>keccak256</strong> leaves. The two are never converted or compared.</td><td>A root anchored from Cortex cannot be verified against on-chain state without an explicit re-hash step that does not exist yet. Per §3.6, a deployment MUST name one hash function — Cortex and the chain currently name different ones for the same session.</td></tr><tr><td>No receiving contract or schema</td><td>Cortex&#x27;s <code>anchor_session_root()</code> posts to an operator-configured <code>XIBALBA_ANCHOR_URL</code>. Neither repo documents what that endpoint must accept, validate, or return.</td><td>§8.3&#x27;s oracle verification steps (sig, domain, leaf inclusion, head-descendant check) have no defined counterpart for a Cortex-originated root.</td></tr><tr><td>Unauthenticated anchor submission</td><td>The anchor POST carries no DID signature, no nonce — unlike every other producer&#x27;s Path A telemetry (§8.2).</td><td>Anyone who can reach the configured URL and knows the expected shape could submit a claimed root. §8.3 Step 1 (&quot;check <code>sig</code> against the agent&#x27;s current keys&quot;) has nothing to check for this path today.</td></tr><tr><td>Conformance vectors are a stub</td><td>The &quot;portable event kernel&quot; batch-Merkle profile is documented as reproducible by an independent implementation, with test vectors meant to prove it. The vector file is a 16-line placeholder.</td><td>Interoperable, cross-implementation verification of Cortex evidence is not yet demonstrable.</td></tr></tbody></table>
+<p>Closing these is protocol-side work (define the receiving contract, pick who owns the hash-space conversion) as much as Cortex-side work; see <code>EXECUTION_PLAN.md</code> §6.</p>
+<hr>
+<h2 id="9-decision-grammar">9. Decision grammar</h2>
+<p>Off-chain / pack policy. Does not replace <span class="math-inline">V</span>.</p>
+<pre class="code" data-lang="text">Decision     = Allow | Deny | Escalate
+Allow        = { &quot;allow&quot;, cursor, reasons[] }
+Deny         = { &quot;deny&quot;,  cursor, constraint_id | rule_id, reasons[] }
+Escalate     = { &quot;escalate&quot;, class, until, cursor, reasons[] }</pre>
+<p><code>Escalate</code> means: the hook MUST treat the action as denied until an authorized human (or listed multi-party) emits <code>Allow</code> for that <code>class</code> and body hash, or the pack defines a timeout <strong>deny</strong>. Timeout MUST NOT default to allow.</p>
+<p>Human approval MUST be domain-separated and single-use (§3.7). The agent MUST NOT resolve its own escalation.</p>
+<p>Integrity Health intents: when Shield domain is set, missing BAA MUST deny (403), not warn. <code>[PARTIAL]</code> — advisory on some <code>bcc_middleware</code> paths today; hard deny is P0.</p>
+<h3 id="9-1-bcc-gate-flow-live-pre-execution-path-built">9.1 BCC gate flow (live pre-execution path) <code>[BUILT]</code></h3>
+<p>This is the concrete decision pipeline behind §9&#x27;s grammar on the live path today — <code>POST /v1/bcc/intercept</code>, before the account is asked to admit anything.</p>
+<pre class="code" data-lang="mermaid">flowchart TD
+    A[&quot;Intent commitment received&quot;] --&gt; B{&quot;Schema valid?&quot;}
+    B -- no --&gt; D1[&quot;Deny: schema&quot;]
+    B -- yes --&gt; C{&quot;Circuit breaker:&lt;br/&gt;agent locked out?&quot;}
+    C -- yes --&gt; D2[&quot;Deny: locked out&quot;]
+    C -- no --&gt; E{&quot;Signature valid?&quot;}
+    E -- no --&gt; D3[&quot;Deny: bad signature&quot;]
+    E -- yes --&gt; F{&quot;Nonce fresh,&lt;br/&gt;not replayed?&quot;}
+    F -- no --&gt; D4[&quot;Deny: replay/stale&quot;]
+    F -- yes --&gt; G{&quot;OPA policy allow?&lt;br/&gt;(fail-closed if unreachable)&quot;}
+    G -- no --&gt; D5[&quot;Deny: policy&quot;]
+    G -- yes --&gt; H{&quot;Verification-tier&lt;br/&gt;gate met?&quot;}
+    H -- no --&gt; D6[&quot;Deny: tier&quot;]
+    H -- yes --&gt; I{&quot;Quarantine check&lt;br/&gt;(fails OPEN by design)&quot;}
+    I -- locked --&gt; D7[&quot;Deny: quarantined&quot;]
+    I -- open/clear --&gt; J{&quot;On-chain BAA active?&lt;br/&gt;(fails closed)&quot;}
+    J -- no --&gt; D8[&quot;Deny: BAA_CANNOT_VERIFY&quot;]
+    J -- yes --&gt; K[&quot;Admit to Merkle batch&quot;]
+    K --&gt; L[&quot;Best-effort anchor&quot;]</pre>
+<p>Each deny path is typed and reported; a reachable audit endpoint is not required for the decision itself, so an unreachable audit log cannot flip a deny into an allow.</p>
+<hr>
+<h2 id="10-ais-partial">10. AIS <code>[PARTIAL]</code></h2>
+<p>AIS is an evidence-derived integrity measurement, not a global reputation token.</p>
+<div class="math-block">AIS_{a,t} = f(E_{a,0:t}, P_{a,0:t}, B_{a,0:t}, A_{a,0:t})</div>
+<table><thead><tr><th>Symbol</th><th>Meaning</th></tr></thead><tbody><tr><td><span class="math-inline">E</span></td><td>Verified evidence completeness and signature validity</td></tr><tr><td><span class="math-inline">P</span></td><td>Policy compliance, denials, exceptions, escalation outcomes</td></tr><tr><td><span class="math-inline">B</span></td><td>Behavioral consistency, drift, anomaly indicators</td></tr><tr><td><span class="math-inline">A</span></td><td>Assurance: signed workload identity, hardware or ZK attestations</td></tr></tbody></table>
+<p>The live formula, configurable component-floor evaluation/conjunctive result, pre-boost normalized <code>constraint_score</code>, optional ZK boost, and identity-ceiling clamp are <code>[BUILT]</code> in <code>scoring-core</code>. The floor result is shadow/observational output only; no enforcement path is implemented. Keyword grounding is <code>[PARTIAL]</code>.</p>
+<pre class="code" data-lang="mermaid">flowchart LR
+    E[&quot;S_entropy^0.30&quot;] --&gt; GM[&quot;Weighted geometric mean&lt;br/&gt;AIS_raw&quot;]
+    G[&quot;S_grounding^0.30&quot;] --&gt; GM
+    S[&quot;S_sacrifice^0.20&quot;] --&gt; GM
+    Cp[&quot;S_compliance^0.20&quot;] --&gt; GM
+    GM --&gt; ZB{&quot;ZK-verified&lt;br/&gt;this period?&quot;}
+    ZB -- yes --&gt; B1[&quot;× 1.15 boost&quot;]
+    ZB -- no --&gt; B2[&quot;× 1.0&quot;]
+    B1 --&gt; CL[&quot;clamp to tier ceiling&lt;br/&gt;(300 / 600 / 850 / uncapped)&quot;]
+    B2 --&gt; CL
+    CL --&gt; OUT[&quot;AIS_final&quot;]
+    OUT -.-&gt;|&quot;widen a finite c_max only&quot;| PACKC[&quot;Pack constraint bound&quot;]
+    OUT -. &quot;MUST NOT&quot; .-&gt; DENY[&quot;flip a deny into allow&quot;]</pre>
+<p>A single exact-zero input component annihilates <code>AIS_raw</code> (weighted geometric mean, not a weighted average) — this is <code>[BUILT]</code> and numerically verified server-side, closing a real scoring exploit where a content-free submission with a claimed compute-time input previously outscored an honest agent under the old fail-open defaults. <code>[PARTIAL]</code>: fail-closed defaults, configurable per-component-floor evaluation, a conjunctive floor result, and the tier-capped pre-boost <code>[0,1]</code> <code>constraint_score</code> are <code>[BUILT]</code>; the floor result is shadow reporting only and is not wired into score pushes, disputes, or another enforcement path. The current profile (<code>ais/v1-geometric-2</code>, amended 2026-11-15) separates an <em>observed zero</em> from an <em>unobserved axis</em>. Compliance without an independently readable gate or attestation, and sacrifice without validator/TEE evidence, are <strong>unobserved</strong>: that axis gets weight 0, the remaining observed weights are renormalized to sum to 1, and the response lists it in <code>missing_axes</code>. An axis backed by independent evidence that measures zero still annihilates <code>AIS_raw</code>. Signed flagged ratios and token-derived compute estimates remain audit-only proxy fields and never count as observation, so a claimed compute input still cannot raise the score (the exploit above stays closed). If every weighted axis is unobserved, scoring fails closed to the configured weights. <code>[BUILT]</code> (Oracle migrations 0025 compliance, 0026 sacrifice). The superseded <code>ais/v1-geometric-1</code> profile resolved both unobserved axes to zero, which annihilated every agent&#x27;s AIS while no validator/TEE evidence path existed.</p>
+<p>AIS MAY drive one of four bounded outcomes:</p>
+<table><thead><tr><th>Outcome</th><th>Permitted effect</th></tr></thead><tbody><tr><td>High confidence</td><td>Larger but finite quota</td></tr><tr><td>Normal</td><td>Standard controls</td></tr><tr><td>Reduced</td><td>Narrow quotas or step-up</td></tr><tr><td>Integrity failure</td><td>Quarantine, revoke session, require human</td></tr></tbody></table>
+<p>AIS MUST NEVER:</p>
+<ul><li>Change a policy <code>deny</code> into <code>allow</code></li><li>Set <span class="math-inline">c^{\max} = \infty</span></li><li>Be computed from Path B (unsigned OTLP)</li><li>Be treated as the reason a hook passed</li></ul>
+<p>ZK boost, if used, SHOULD bind to the specific event. The oracle now scales the multiplier by the fraction of proof-bearing events instead of a period-wide <code>BOOL_OR</code>. Proof public inputs now bind identity, nonce, chain, receiving registry, and the exact anchored BCC leaf, preventing event substitution. The on-chain registry still grants a period-wide boost after that event-bound proof, so the end-to-end scoring path remains <code>[PARTIAL]</code> and MUST be disclosed.</p>
+<hr>
+<h2 id="11-trust-tiers">11. Trust tiers</h2>
+<table><thead><tr><th>Tier</th><th>Components</th><th>Failure</th></tr></thead><tbody><tr><td>Trusted</td><td>Chain + EVM, EntryPoint, kernel bytecode, constraint grammar</td><td>Total. Keep this set small.</td></tr><tr><td>Attested</td><td>Packs, oracle binary, Cortex binary, validators</td><td>Wrong <span class="math-inline">C</span> faithfully enforced; pin versions; audit</td></tr><tr><td>Untrusted</td><td>Agent policy <span class="math-inline">\pi</span>, prompts, tools, bundlers, counterparties</td><td>Contained if M1–M5 hold</td></tr></tbody></table>
+<p><span class="math-inline">\pi</span> MUST NOT be trusted. Proposition 1 is stated over adversarial <span class="math-inline">a_k</span> for that reason.</p>
+<p>TEE attestation verifiers MAY exist. Wiring them into a live Tier-3 admission path is <code>[PLANNED]</code>.</p>
+<hr>
+<h2 id="12-residual-non-goals-normative-exclusions">12. Residual non-goals (normative exclusions)</h2>
+<p>A conformant implementation MUST NOT claim:</p>
+<table><thead><tr><th>Exclusion</th><th>Reason</th></tr></thead><tbody><tr><td>Correctness of <span class="math-inline">\pi</span></td><td>Outside TCB</td></tr><tr><td>Copy control / DRM after delivery</td><td>Access is not copy. Gating access to proprietary data is a pack (<code>ip-license</code>, §7.6), not this exclusion.</td></tr><tr><td>Complete mediation without M1–M5</td><td>Guarantee void</td></tr><tr><td>AIS or reputation as a deny-override</td><td>§3.5, §10</td></tr><tr><td>Token economy (governance, implied cap, adapter marketplace)</td><td>Not v1 spine. Slashable ERC-20 collateral, including $ITK as the built default, remains a pack parameter. <code>markets@*</code> is a pack over existing market contracts, not a kernel type.</td></tr><tr><td>Metered IP marketplace (v3.2 Phase II: ERC-6551 licence TBAs, ATCP/IP, settlement)</td><td>Archive. Access gating does not require it.</td></tr><tr><td>EU AI Act as kernel types</td><td>Profile / pack only</td></tr><tr><td>Shield as a protocol object</td><td>Product on Core</td></tr><tr><td>Cortex as a second verifier</td><td>Evidence plane</td></tr><tr><td>Chargebacks, legal liability, tax filing, settlement-issuer diversity</td><td>Outside protocol</td></tr><tr><td>World-event / price oracle</td><td>Wrong tool</td></tr><tr><td>Scoring unsigned OTLP</td><td>§8.2</td></tr><tr><td>Physical RF entropy as identity</td><td>Archived research</td></tr></tbody></table>
+<hr>
+<h2 id="13-liveness-normative-minimum">13. Liveness (normative minimum)</h2>
+<table><thead><tr><th>ID</th><th>Rule</th></tr></thead><tbody><tr><td>L1</td><td>Ambiguity → reject with typed reason. No silent fail-open on the value path.</td></tr><tr><td>L2</td><td>Every pack declares <code>gas_max</code>; overflow → reject.</td></tr><tr><td>L3</td><td>Unattested hook installable only by explicit operator override.</td></tr><tr><td>L4</td><td>Kernel removal is delayed + multi-party (M4).</td></tr></tbody></table>
+<p>v3.x Adaptive Grace Modes, ATCP/IP state channels, and DA-Escrow are archived. They are not v1.</p>
+<hr>
+<h2 id="14-implementation-status-core">14. Implementation status (Core)</h2>
+<p>Grounded against <code>XibalbaTechSol/integrity-core</code> <code>main</code> as of November 2026, plus <code>super-cortex</code> and <code>xibalba-shield</code>.</p>
+<table><thead><tr><th>Item</th><th>Tag</th></tr></thead><tbody><tr><td>SDK signed telemetry + BCC intercept</td><td><code>[BUILT]</code></td></tr><tr><td>Path A vs Path B ingest split</td><td><code>[BUILT]</code></td></tr><tr><td>Oracle ingest, verify, store, AIS API</td><td><code>[BUILT]</code></td></tr><tr><td>Server-side AIS re-derivation</td><td><code>[BUILT]</code></td></tr><tr><td>AIS identity-ceiling clamp</td><td><code>[BUILT]</code></td></tr><tr><td>Oracle → AISRegistry score checkpoint push</td><td><code>[BUILT]</code></td></tr><tr><td>StateAnchor + ActionAnchor Merkle batch</td><td><code>[BUILT]</code></td></tr><tr><td>Super-Cortex evidence / memory plane</td><td><code>[BUILT]</code></td></tr><tr><td><code>IntegrityHook.sol</code> ERC-7579 hook (pre/post-state V)</td><td><code>[BUILT]</code> (<code>contracts/src/wallet/IntegrityHook.sol</code>)</td></tr><tr><td><code>IntegrityGuard.sol</code> Safe transaction guard</td><td><code>[BUILT]</code> (<code>contracts/src/wallet/IntegrityGuard.sol</code>)</td></tr><tr><td><code>SafeAccountVerifier.sol</code> account invariants</td><td><code>[BUILT]</code> (<code>contracts/src/wallet/SafeAccountVerifier.sol</code>)</td></tr><tr><td><code>AgentRegistry.sol</code> singleton &amp; lineage</td><td><code>[BUILT]</code> (<code>contracts/src/framework/AgentRegistry.sol</code>)</td></tr><tr><td>Trust Layer singletons (<code>StakeVault</code>, <code>AISRegistry</code>, <code>PolicyRegistry</code>)</td><td><code>[BUILT]</code> (<code>contracts/src/trust/</code>)</td></tr><tr><td>3-Tier Identity &amp; Agent0 / ERC-8004 Public Passport Bridge</td><td><code>[BUILT]</code> (<code>integrity_sdk.erc8004</code>, <code>integrity erc8004</code> CLI, oracle backend)</td></tr><tr><td>Constraint grammar §4</td><td><code>[PARTIAL]</code> — freeze this text as the language</td></tr><tr><td>M1–M5 mediation checklist</td><td><code>[PLANNED]</code> as a shipped auditor</td></tr><tr><td>M4 multi-party kernel swap</td><td><code>[PLANNED]</code></td></tr><tr><td>Identity keyed <span class="math-inline">C</span></td><td><code>[BUILT]</code> via AgentRegistry &amp; SafeAccountVerifier</td></tr><tr><td>Pack schema §7.1 + compiler §7.5</td><td><code>[PLANNED]</code> as the only extension API</td></tr><tr><td>Closed constraint families §7.5</td><td><code>[PARTIAL]</code> — spend budget, AIS floor, target allowlist</td></tr><tr><td>Integrity Health pack in this schema</td><td><code>[PARTIAL]</code> (BAA/ComplianceGate/PHI scan exist; not this folder form)</td></tr><tr><td><code>ip-license</code> pack</td><td><code>[PLANNED]</code> — same <code>delegation_active</code> family as Health</td></tr><tr><td><code>markets</code> pack</td><td><code>[PLANNED]</code> as pack form; <code>IntegrityMarket.sol</code> / <code>A2ACapitalPool.sol</code> <code>[BUILT]</code>, out of spine</td></tr><tr><td>Pack <code>redact: enforce</code> server-side</td><td><code>[PARTIAL]</code> — SDK default-off <code>redact_phi</code> is a Health/IP blocker until BCC/oracle reject</td></tr><tr><td>Hard BAA deny on Shield-domain paths</td><td><code>[PARTIAL]</code> / P0</td></tr><tr><td>Genesis <code>latestRoot != 0</code></td><td><code>[PLANNED]</code> / P0</td></tr><tr><td>Escalate + deny-on-timeout as first-class OBS</td><td><code>[PARTIAL]</code></td></tr><tr><td>ZK ingest profile</td><td><code>[PARTIAL]</code> off-chain; on-chain verifier is a fail-closed placeholder</td></tr><tr><td>On-chain licence TBA; IntegrityGovernance; Metered IP marketplace</td><td>out of v1 spine (archive). Market contracts stay in repo as <code>markets@*</code> body.</td></tr><tr><td>Independent audit + invariance proof</td><td><code>[PLANNED]</code> — gate for non-draft v1.0.0</td></tr><tr><td>Upgradeability of <code>SovereignAgent</code> / <code>StateAnchor</code></td><td><code>[BUILT]</code> for future deployments — frozen hosts with agent-pinned, fail-closed policy hooks; existing Base Sepolia agents retain older bytecode and are not migrated</td></tr><tr><td>Protocol role concentration</td><td><code>[OPEN]</code> — arbitrator/disputer/funderWallet/governance/oracleSigner/resolverSigner + <code>MINTER_ROLE</code> + <code>DEFAULT_ADMIN_ROLE</code> are one EOA today (testnet posture, named P0 for mainnet)</td></tr><tr><td>ZK verifier: source vs. deployed</td><td><code>[PARTIAL]</code> — real generated verifier (Honk scheme) exists in source; Base Sepolia still runs an older fail-closed placeholder</td></tr><tr><td>Single RPC dependency, no failover</td><td><code>[OPEN]</code></td></tr><tr><td>Silence-as-signal (agent stops reporting while still acting)</td><td><code>[PLANNED]</code></td></tr><tr><td>Uniform minimum stake at registration</td><td><code>[OPEN]</code> — an agent can register and hold a score while risking nothing</td></tr></tbody></table>
+<p><strong>Phase 1 (Freeze Core) exit:</strong></p>
+<ol><li>SDK emits a signed span + Merkle leaf. <code>[BUILT]</code></li><li>Super-Cortex stores; oracle verifies and anchors a root. <code>[BUILT]</code></li><li>Hook enforces a constraint file from the active pack (<code>IntegrityHook</code>). <code>[BUILT]</code></li><li>Policy engine can allow / deny / escalate. <code>[PARTIAL]</code></li><li>Console shows replay + pending escalations. <code>[BUILT]</code></li></ol>
+<p>Integrity Health pack contents are Phase 2 and MUST NOT block calling this constitution v1.</p>
+<hr>
+<h2 id="15-machine-readable-fragment-canonical">15. Machine-readable fragment (canonical)</h2>
+<pre class="code" data-lang="yaml">protocol: integrity
+version: 1.0.0-draft
+verbs: [constrain, record, escalate]
+planes: [core, cortex, ais, chain]
+profiles: [enclosed_enterprise, sovereign_economic]
+hook:
+  grammar: post-state
+  admit: &quot;forall g_i &lt;= 0&quot;
+  hook_wins: true
+  preCheck: projected
+  postCheck: realized
+oracle:
+  is_price_feed: false
+  is_cortex: false
+ingest:
+  path_A_scores: true
+  path_B_scores: false
+ais:
+  authority: false
+  may_lift_c_max: false
+  may_flip_deny: false
+escalation:
+  timeout: deny
+packs:
+  composition: conjunction
+  widen: false
+  families:
+    - native_value_budget
+    - token_out_cap
+    - meter
+    - reputation_floor
+    - assurance_tier
+    - module_installed
+    - delegation_active
+  redact_enforce_server_side: true
+exclusions:
+  - token_economy_as_spine
+  - metered_ip_marketplace
+  - drm_after_delivery
+  - world_event_oracle
+  - eu_ai_act_as_spine
+  - fourth_verb
+  - unsigned_otlp_ais</pre>
+<hr>
+<h2 id="16-file-authority-after-cutover">16. File authority (after cutover)</h2>
+<table><thead><tr><th>File</th><th>Authority</th></tr></thead><tbody><tr><td><code>docs/WHITEPAPER.md</code></td><td>Informative, public</td></tr><tr><td><code>docs/SPEC.md</code></td><td><strong>Normative</strong></td></tr><tr><td><code>docs/CONTROLS_MATRIX.md</code></td><td>Informative mapping</td></tr><tr><td><code>docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md</code></td><td>Informative roadmap. Sequences the work that closes the <code>[PARTIAL]</code>/<code>[PLANNED]</code>/<code>[EXPERIMENTAL]</code> gaps named in this file. It MUST NOT introduce a requirement this file doesn&#x27;t already state.</td></tr><tr><td><code>docs/archive/</code></td><td>Historical. Do not implement from these.</td></tr></tbody></table>
+<p>When README, wiki, interface contract, and this file disagree, this file wins for protocol meaning; the disagreement MUST be repaired in the same change.</p></main>
+</body></html>

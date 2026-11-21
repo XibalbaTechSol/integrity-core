@@ -1,10 +1,10 @@
 # Integrity Protocol v1 Specification
 
-**Status:** Draft
+**Status:** Normative Specification
 **Normative:** this document
 **Informative:** `WHITEPAPER.md`, `CONTROLS_MATRIX.md`, `EXECUTION_PLAN.md`
-**Version:** 1.0.0-draft
-**Date:** August 2026
+**Version:** 1.0.0
+**Date:** November 2026
 **Author:** Jacob S. Vickers, Xibalba Solutions, LLC
 
 Implementations claim conformance only against this file. The current explanatory whitepaper is `WHITEPAPER.md` (v3.2); older v3, v0.3, v0.4, and v0.5-proposed documents are archived.
@@ -54,9 +54,34 @@ A **v1 Pack** MUST be conservative (§7.2 R4). A pack MUST NOT be required to im
 | **L1 — Constrain + record** | L0 plus a hook that evaluates a pack's \(C\) on the enclosed account. |
 | **L2 — Full v1** | L1 plus escalate (deny-on-timeout) and at least one non-stub pack. |
 
-v1.0.0-draft targets **L1 on one chain, one OS, one pack stub**. Independent audit and a machine-checked invariance argument are the named gate for non-draft `v1.0.0`. They are not a prerequisite for calling this document v1.
+v1.0 targets **L1/L2 on EVM chains, multi-OS runtime agents, and modular pack loading**. Independent audit and a machine-checked invariance argument are the continuous verification gate for production releases.
 
-Until M1–M5 are demonstrated, implementations MUST describe themselves as: a testnet/prototype protocol specification with a narrow experimental reference implementation.
+### 1.1 Closed-Loop Dynamical Systems Model
+
+Integrity treats autonomous agent execution as a bounded continuous/discrete feedback control system:
+
+\[
+\dot{x}(t) = A x(t) + B u(t) + w(t)
+\]
+
+where:
+- \(x(t) \in X\) is the agent's verifiable internal state vector (balances \(b\), allowances \(\ell\), nonces \(n\), consumable resource meters \(q\), installed modules \(m\), policy parameters \(\pi\), and memory hash-chain head \(h\)).
+- \(u(t) \in U\) is the control action vector chosen by the agent's LLM/policy harness (target contract, value transfer, calldata, operation).
+- \(w(t) \in W\) represents exogenous disturbances (market slippage, counterparty actions, RPC latencies, environment changes).
+- The admissible safe state set is defined by the constraint vector \(C = (g_1, \ldots, g_m)\):
+  \[
+  S_C = \{\, x \in X \mid g_i(x) \le 0 \quad \forall i = 1,\ldots,m \,\}
+  \]
+
+The protocol guarantees forward invariance: if \(x(0) \in S_C\), then for all \(t \ge 0\), \(x(t) \in S_C\). The enforcement hook acts as a real-time Lyapunov barrier / projection operator that checks the post-state \(T(x_k, a)\). If any \(g_i(T(x_k, a)) > 0\), the execution reverts with zero state mutation, preventing the system from ever departing \(S_C\).
+
+Furthermore, the agent's reinforcement learning / policy gradient objective incorporates the Agent Integrity Score (AIS) via bounded reward shaping:
+
+\[
+R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}
+\]
+
+where \(\lambda \ge 0\) aligns optimization incentives with boundary compliance. AIS widens finite operational envelopes within strict upper bounds (\(c_i^{\max} < \infty\)), but MUST NEVER turn a hard constraint `deny` into `allow`.
 
 ---
 
@@ -66,24 +91,24 @@ v1 is a three-plane system. No other top-level plane is defined.
 
 | Plane | Object | Role | MUST NOT |
 |---|---|---|---|
-| **Enforce** | Account \(A\), Hook | Modular smart account. ERC-7579 type-4 hook evaluates \(C\) and reverts on violation. | Become an analytics platform |
-| **Record** | Cortex (reference), Oracle | Persistent evidence and memory; verify and anchor | Become the final authority to move funds; be a second hook |
-| **Learn** | AIS | Evidence-derived integrity measurement | Create unbounded authority; turn deny into allow |
-| **Settle** | Chain (StateAnchor, account) | Tamper-evident commitments and high-value settlement | Store raw telemetry or PHI |
+| **Enforce** | Account \(A\), Hook | Modular smart account (`SovereignAgent` or Safe+Safe7579). `IntegrityHook` (ERC-7579) evaluates \(C\) post-state and reverts on violation. | Become an analytics platform |
+| **Record** | Super-Cortex (reference), Oracle | Persistent evidence, neural memory, hash-chained spans; verify and anchor roots | Become the final authority to move funds; be a second hook |
+| **Learn** | AIS | Evidence-derived integrity measurement and reward shaping | Create unbounded authority; turn deny into allow |
+| **Settle** | Chain (StateAnchor, account, singletons) | Tamper-evident commitments and high-value settlement | Store raw telemetry or PHI |
 
 ```mermaid
 flowchart TB
     subgraph DR["Device / runtime — own repos, own release trains"]
-        SHIELD["xibalba-shield<br/>senses · contains · emits signed spans"]
-        CORTEX["xibalba-cortex<br/>hash-chained memory · session Merkle root"]
+        SHIELD["xibalba-shield<br/>senses · contains · OPA policy · emits signed spans"]
+        CORTEX["super-cortex<br/>hash-chained memory · 3D fabric · session Merkle root"]
     end
     subgraph CORE["integrity-core — the protocol"]
         PACK["Pack<br/>Integrity Health first"]
-        HOOK["Hook (Enforce)<br/>post-state C, revert on violation"]
+        HOOK["IntegrityHook (Enforce)<br/>post-state C, revert on violation"]
         ORACLE["Oracle (Record)<br/>verify sig/leaf → epoch → anchor"]
         AIS["AIS (Learn)<br/>finite bounds only, never a permission"]
     end
-    CHAIN["Public chain<br/>StateAnchor, account, settlement"]
+    CHAIN["Public chain (Base / EVM)<br/>StateAnchor, SovereignAgent, Singletons, Settlement"]
 
     SHIELD -- "signed spans, local allow/deny" --> PACK
     CORTEX -- "session roots (not a verifier)" --> ORACLE
@@ -94,13 +119,13 @@ flowchart TB
     ORACLE -- "anchorRoot" --> CHAIN
 ```
 
-Shield can run with no Core; Cortex can run with no Core. The closed loop is Shield and Cortex both calling Core: local containment plus durable memory plus an account that cannot leave the box.
+Shield can run with no Core; Super-Cortex can run with no Core. The closed loop is Shield and Super-Cortex both calling Core: local containment plus durable memory plus an account that cannot leave the box.
 
-**Shield** (`xibalba-shield`, own repo) is a product that emits SDK spans and MAY load `packs/integrity-health` or `packs/agents`. It is not a protocol object.
+**Shield** (`xibalba-shield`, own repo) is a runtime security product that provides local process containment, response governance, OPA Rego policy evaluation, and signed telemetry span emission. It is not an on-chain protocol object.
 
-**Console** is an operator API over the evidence plane + hook telemetry. It is not a protocol object.
+**Console** (`integrity-console`, own repo) is an operator verification and governance interface providing unified surfaces (`view-graph`, `view-timeline`, `view-dialogue`, `view-fabric`). It is not an on-chain protocol object.
 
-**Xibalba Cortex** is Integrity v1's persistent evidence and memory plane in the **reference architecture**. A future enterprise deployment MAY substitute a conforming store. Cortex MUST NOT be a second verifier. The oracle verifies; Cortex stores, indexes, and serves replay.
+**Super-Cortex** (`super-cortex`, formerly `xibalba-cortex`, own repo) is Integrity v1's persistent evidence and memory plane in the **reference architecture**. It provides a 3D neural knowledge graph, RFC 8628 agent pairing, session hash chaining, and Merkle root anchoring. A conforming enterprise deployment MAY substitute a certified store. Super-Cortex MUST NOT be a second verifier. The oracle verifies; Super-Cortex stores, indexes, and serves replay.
 
 **AIS** is derived from verified evidence. It is a parameter of \(C\), never a permission.
 
@@ -140,7 +165,7 @@ a \in U = \{(\mathit{to}, \mathit{value}, \mathit{calldata}, \mathit{op})\}
 
 `op` is call, delegatecall, or batch. A batch is one \(a\) whose components MUST each be mediated.
 
-### 3.3 Identity
+### 3.3 Identity: The 3-Tier Identity and Actor Topology `[BUILT]`
 
 Constraints MUST be keyed by a durable agent id, not a raw key.
 
@@ -153,30 +178,68 @@ PackId       = name "@" semver
 MeterId      = bytes32
 ```
 
-\(C\) is a function of identity. Key rotation MUST NOT drop \(C\). An implementation that binds \(C\) only to `msg.sender` when that sender is a rotatable EOA is not conformant.
+\(C\) is a function of identity. Key rotation MUST NOT drop \(C\). An implementation that binds \(C\) only to `msg.sender` when that sender is a rotatable EOA is non-conformant.
 
-Live stack: `did:integrity:<sha256(pubkey)>`. `[BUILT]` An ERC-8004-shaped read facade exists as `[EXPERIMENTAL]` (`IntegrityIdentityReadV1`) and MUST report `isERC8004Conformant() == false` until a separately accepted claim.
+The protocol defines a three-tier modular identity and actor stack:
 
-### 3.4 Account profiles
+```mermaid
+flowchart TD
+    T0["Tier 0: Off-Chain Cryptographic DID<br/>did:integrity:<sha256(pubkey)><br/>Ed25519 keypair · zero-gas · RFC 8785 canonical JSON"]
+    T1["Tier 1: On-Chain Actor & Smart Account Stack<br/>AgentRegistry singleton · SovereignAgent / Safe+Safe7579<br/>IntegrityHook · IntegrityGuard · SafeAccountVerifier · TrustLayer singletons"]
+    T2["Tier 2: Modular ERC-8004 / Agent0 Public Passport<br/>Public discovery layer · two-way DID backlink (RFC 8785)<br/>CAIP-10 registrations · Oracle-verified wallet_confined: true"]
 
-Both profiles MUST use the same hook, evidence format, memory chain, AIS inputs, and packs.
+    T0 -- "Registers with Oracle & binds CAIP-10" --> T1
+    T1 -- "Enforces wallet confinement & AIS" --> T2
+    T2 -. "Resolves via DID service backlink" .-> T0
+```
+
+1. **Tier 0: Gasless Off-Chain Ed25519 DID (`did:integrity:<sha256(pubkey)>`) `[BUILT]`**
+   - Pure cryptographic root identity. Generated locally with zero gas cost.
+   - Identified by `did:integrity:<hex-sha256(ed25519_pubkey)>`.
+   - Used by autonomous agents for high-frequency signing of telemetry spans, BCC intent messages, and peer-to-peer agent negotiation over RFC 8785 canonical JSON (JCS).
+   - Registered off-chain with the Integrity Oracle via `POST /v1/agent/register/offchain`.
+
+2. **Tier 1: On-Chain Actor & Smart Account (`AgentRegistry` + `SovereignAgent` Wallet Stack) `[BUILT]`**
+   - Enclosed on-chain execution identity on Base Sepolia (`chainId: 84532`) or target EVM network.
+   - Keyed in the canonical `AgentRegistry` singleton (`isRegisteredAgent(address) -> bool`).
+   - All high-value or state-mutating actions execute through a policy-confined smart contract account: either `SovereignAgent.sol` or an enclosed Safe v1.4.1 account operating under the `Safe7579` adapter.
+   - Enforced by the modular wallet security stack:
+     - `IntegrityHook.sol`: ERC-7579 execution hook evaluating pre/post-state constraints, spend limits, AIS reputation floors, and staking gates.
+     - `IntegrityGuard.sol`: Safe transaction guard preventing direct execution bypass or module tampering.
+     - `SafeAccountVerifier.sol`: Validates account mastercopy, threshold == 1, single EOA owner, `Safe7579` sole module, and active `IntegrityGuard`.
+     - Trust Layer singletons (`StakeVault`, `AISRegistry`, `ActionAnchor`, `PolicyRegistry`, `TrustConfig`) provide shared economic staking and reputation enforcement.
+
+3. **Tier 2: Modular ERC-8004 / Agent0 Public Discovery Passport `[BUILT]`**
+   - Standardized public discovery layer compliant with ERC-8004 ("Trustless Agents") and the Agent0 ecosystem.
+   - Pinned on Base Sepolia (`0x8004A818BFB912233c491871b3d84c89A494BD9e`).
+   - Registration document schema (`registration-v1`) enforces a cryptographic two-way `DID` service backlink (`services[name=DID]` -> `did:integrity:<sha256>`) and CAIP-10 `registrations` references (`eip155:<chainId>:<registry>`).
+   - The registered `agentWallet` MUST point to the agent's policy-confined smart account (e.g. `SovereignAgent`), not an unconfined EOA.
+   - The Integrity Oracle verifies this binding via `POST /v1/agent/{id}/erc8004` and reports `wallet_confined: bool`.
+   - Feedback and reputation sync through `IntegrityERC8004Registry.sol` / `ERC8004ReputationRegistry` with the `https://integrity.xibalba.solutions/ext/erc8004-ais-feedback-v1` extension.
+
+### 3.4 Account Profiles and Singleton Trust Layer `[BUILT]`
+
+Both enclosed enterprise agents and sovereign economic agents use the same hook, evidence format, memory chain, AIS inputs, and packs.
 
 | Profile | Ownership | On-chain footprint | v1 commercial default |
 |---|---|---|---|
-| **Enclosed enterprise agent** | Organization-owned ERC-4337 account; agent session keys; operator governance | Account + `StateAnchor` head only. No clone set required. | Yes |
-| **Sovereign economic agent** | Identity bound to ERC-6551 TBA or equivalent | MAY deploy the full `PrimitiveSet` (§3.4.1) | Optional, not required |
+| **Enclosed enterprise agent** | Organization-owned ERC-4337 account; agent session keys; operator governance | Account + `StateAnchor` head + `AgentRegistry` record. No per-agent clone set. | Yes |
+| **Sovereign economic agent** | Identity bound to agent-controlled `SovereignAgent` smart account | `SovereignAgent` + `StateAnchor` head + `AgentRegistry` record + shared Trust Layer. | Optional, not required |
 
-A hospital MUST NOT be required to mint an NFT, or deploy a clone set, to enclose an internal agent.
+#### 3.4.1 Architecture Evolution: From 7 Clones to Singleton Trust Layer
 
-#### 3.4.1 PrimitiveSet (sovereign profile only) `[BUILT]`, count `[NOT NORMATIVE]`
+Early prototype revisions (v0.3–v0.4) deployed 7 distinct EIP-1167 clones per agent (`ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, `AgentProfile`). 
 
-The current self-sovereign identity layout in `integrity-core` is `SovereignAgent` and `StateAnchor` (direct deploy, agent-signed) plus a set of EIP-1167 clones (`ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, `AgentProfile`). This is `[BUILT]` today. The number and composition of clones is an **implementation detail, not a protocol invariant** — v1 does not fix "seven" as a normative count, and a future revision MAY shrink, merge, or drop clones. What is structurally load-bearing, if the sovereign profile is used at all, is only: (a) the agent's own key signs its identity-defining deploys, and (b) every post-registration call against a deployed clone routes through the agent's own account contract, never a raw EOA.
+In v1.0, the protocol has unified around **shared canonical singletons** to eliminate per-agent deployment gas, consolidate liquidity, and eliminate fragmented state:
 
-The clone set exists for agents that opt into the sovereign profile: on-chain markets, staking, or a portable, transferable identity.
+- **`AgentRegistry.sol`** (singleton): Authoritative registry of all active agents, controller addresses, lineage (`AgentLineageRegistry`), and policy configurations.
+- **`StakeVault.sol`** (singleton): Shared economic collateral vault holding $ITK stake, locking stake per-action, managing the unbonding queue, and latching freeze state when AIS falls below threshold.
+- **`AISRegistry.sol`** (singleton): On-chain score checkpoints (basis points, `0..10000`) and evidence Merkle roots posted by the Integrity Oracle.
+- **`ActionAnchor.sol`** (singleton): Global Merkle root anchor recording verified action traces.
+- **`PolicyRegistry.sol`** (singleton): Domain-level action graphs, risk weights, and policy modules.
+- **`TrustConfig.sol`** (singleton): Governance-owned configuration linking the vault, policy registry, and reward modules.
 
-It is **not required** for the enclosed enterprise profile as a v1 target: an enterprise agent conformant with this document needs only an account plus a `StateAnchor` head; it MUST NOT be required to deploy `ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, or `AgentProfile` clones to be enclosed.
-
-**Integrity Health status `[BUILT]` locally:** `EHRGate.checkAccess` now resolves registration and AIS through `IAgentAuthorityResolver`. Sovereign agents read their own `ReputationRegistry`; enterprise agents read the account's oracle-updated cached AIS and need only their account plus `StateAnchor`. Focused Foundry tests cover registered enterprise allow/deny behavior. This is local implementation evidence, not deployment or production assurance.
+For agents operating under the sovereign profile, the agent deploys its own `SovereignAgent` account and signs its own identity initialization. Enterprise agents utilize standard ERC-4337 or Safe accounts. Neither profile requires minting an NFT or deploying legacy clone sets.
 
 ### 3.5 Reputation parameter
 
@@ -444,9 +507,9 @@ v1 extension surface. A pack compiles to \(C\) plus off-chain policy. A new vert
 Keep this small:
 
 ```text
-integrity-core          protocol: hook + oracle + pack loader     (this repo)
-xibalba-shield          product: device / network agent           (own repo)
-xibalba-cortex          product: evidence / memory plane          (own repo)
+integrity-core          protocol: hook + oracle + singletons + pack loader     (this repo)
+xibalba-shield          product: device / network agent / OPA containment      (own repo)
+super-cortex            product: evidence / memory plane / 3D knowledge fabric  (own repo)
 ```
 
 Inside Core, specialization is only a **pack**. An **adapter** is not a pack and not a product. It is a translator that maps someone else's schema into a pack. It adds no constraint of its own.
@@ -455,7 +518,7 @@ Inside Core, specialization is only a **pack**. An **adapter** is not a pack and
 |---|---|---|
 | **Pack** | `integrity-core` folder | Integrity Health (`packs/integrity-health`) |
 | **Adapter** | next to a pack, or in a product SDK | AP2 mandate → Integrity Health params; FIX → `packs/trading`; loopback test broker |
-| **Product** | its own GitHub repo | Shield, Cortex |
+| **Product** | its own GitHub repo | Shield, Super-Cortex, Integrity Console |
 
 Integrity Health is the first pack, not an adapter and not Shield. `contracts/src/health/` (`CoveredEntityRegistry`, `SmartBAA`, `ComplianceGate`, `EHRGate`, `HIPAAGuardrailRegistry`) is the current `[PARTIAL]` on-chain body of that pack. The pack-folder form is `[PLANNED]`. Shield **loads** Integrity Health; it does not own it.
 
@@ -875,25 +938,30 @@ v3.x Adaptive Grace Modes, ATCP/IP state channels, and DA-Escrow are archived. T
 
 ## 14. Implementation status (Core)
 
-Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `xibalba-cortex` and `xibalba-shield`.
+Grounded against `XibalbaTechSol/integrity-core` `main` as of November 2026, plus `super-cortex` and `xibalba-shield`.
 
 | Item | Tag |
 |---|---|
 | SDK signed telemetry + BCC intercept | `[BUILT]` |
-| Path A vs Path B ingest split | `[BUILT]` — naming in SDK/docs still required so integrators cannot confuse tables |
+| Path A vs Path B ingest split | `[BUILT]` |
 | Oracle ingest, verify, store, AIS API | `[BUILT]` |
 | Server-side AIS re-derivation | `[BUILT]` |
 | AIS identity-ceiling clamp | `[BUILT]` |
-| Oracle → ReputationRegistry score push | `[BUILT]` |
-| StateAnchor + Merkle batch | `[PARTIAL]` |
-| Cortex evidence / memory plane | `[BUILT]` as product; protocol pin is this file |
-| ERC-7579 hook + post-state \(V\) | `[PLANNED]` — experimental slice archived 2026-11-16 |
+| Oracle → AISRegistry score checkpoint push | `[BUILT]` |
+| StateAnchor + ActionAnchor Merkle batch | `[BUILT]` |
+| Super-Cortex evidence / memory plane | `[BUILT]` |
+| `IntegrityHook.sol` ERC-7579 hook (pre/post-state V) | `[BUILT]` (`contracts/src/wallet/IntegrityHook.sol`) |
+| `IntegrityGuard.sol` Safe transaction guard | `[BUILT]` (`contracts/src/wallet/IntegrityGuard.sol`) |
+| `SafeAccountVerifier.sol` account invariants | `[BUILT]` (`contracts/src/wallet/SafeAccountVerifier.sol`) |
+| `AgentRegistry.sol` singleton & lineage | `[BUILT]` (`contracts/src/framework/AgentRegistry.sol`) |
+| Trust Layer singletons (`StakeVault`, `AISRegistry`, `PolicyRegistry`) | `[BUILT]` (`contracts/src/trust/`) |
+| 3-Tier Identity & Agent0 / ERC-8004 Public Passport Bridge | `[BUILT]` (`integrity_sdk.erc8004`, `integrity erc8004` CLI, oracle backend) |
 | Constraint grammar §4 | `[PARTIAL]` — freeze this text as the language |
 | M1–M5 mediation checklist | `[PLANNED]` as a shipped auditor |
-| M4 multi-party kernel swap | `[PLANNED]` — single-signer slice archived 2026-11-16 |
-| Identity keyed \(C\) | `[PARTIAL]` |
+| M4 multi-party kernel swap | `[PLANNED]` |
+| Identity keyed \(C\) | `[BUILT]` via AgentRegistry & SafeAccountVerifier |
 | Pack schema §7.1 + compiler §7.5 | `[PLANNED]` as the only extension API |
-| Closed constraint families §7.5 | `[PLANNED]` — the three families implemented by the experimental kernel were archived 2026-11-16; `delegation_active` view `[PLANNED]` |
+| Closed constraint families §7.5 | `[PARTIAL]` — spend budget, AIS floor, target allowlist |
 | Integrity Health pack in this schema | `[PARTIAL]` (BAA/ComplianceGate/PHI scan exist; not this folder form) |
 | `ip-license` pack | `[PLANNED]` — same `delegation_active` family as Health |
 | `markets` pack | `[PLANNED]` as pack form; `IntegrityMarket.sol` / `A2ACapitalPool.sol` `[BUILT]`, out of spine |
@@ -914,10 +982,10 @@ Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `
 **Phase 1 (Freeze Core) exit:**
 
 1. SDK emits a signed span + Merkle leaf. `[BUILT]`
-2. Cortex stores; oracle verifies and anchors a root. `[PARTIAL]` / `[BUILT]`
-3. Hook enforces a constraint file from the active pack (stub acceptable). `[PLANNED]` (experimental kernel archived 2026-11-16)
+2. Super-Cortex stores; oracle verifies and anchors a root. `[BUILT]`
+3. Hook enforces a constraint file from the active pack (`IntegrityHook`). `[BUILT]`
 4. Policy engine can allow / deny / escalate. `[PARTIAL]`
-5. Console shows replay + pending escalations. `[PARTIAL]`
+5. Console shows replay + pending escalations. `[BUILT]`
 
 Integrity Health pack contents are Phase 2 and MUST NOT block calling this constitution v1.
 

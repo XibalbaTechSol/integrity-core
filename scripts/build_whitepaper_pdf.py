@@ -8,10 +8,12 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "spec" / "integrity-protocol-v3.1.md"
+SOURCE = ROOT / "docs" / "WHITEPAPER.md"
 OUT_DIR = ROOT / "docs" / "releases"
-HTML_OUT = OUT_DIR / "Integrity_Protocol_Whitepaper_v3.1.html"
-PDF_OUT = OUT_DIR / "Integrity_Protocol_Whitepaper_v3.1.pdf"
+SPEC_DIR = ROOT / "spec"
+HTML_OUT = OUT_DIR / "Integrity_Protocol_Whitepaper_v3.2.html"
+PDF_OUT = OUT_DIR / "Integrity_Protocol_Whitepaper_v3.2.pdf"
+SPEC_PDF_OUT = SPEC_DIR / "Integrity_Protocol_Whitepaper_v3.2.pdf"
 
 
 def inline(text: str) -> str:
@@ -123,9 +125,9 @@ def main() -> None:
         f'<li><a href="#{re.sub(r"[^a-z0-9]+", "-", h.lower()).strip("-")}">{html.escape(h)}</a></li>'
         for h in headings if re.match(r"^(?:\d+|Appendix)", h)
     )
-    document = f'''<!doctype html><html><head><meta charset="utf-8"><title>Integrity Protocol — Whitepaper v3.1</title>
+    document = f'''<!doctype html><html><head><meta charset="utf-8"><title>Integrity Protocol — Whitepaper v3.2</title>
 <style>
-@page {{ size: A4; margin: 20mm 17mm 19mm; @bottom-center {{ content: "Integrity Protocol · Whitepaper v3.1 · " counter(page); font: 8pt Arial; color:#667085; }} }}
+@page {{ size: A4; margin: 20mm 17mm 19mm; @bottom-center {{ content: "Integrity Protocol · Whitepaper v3.2 · " counter(page); font: 8pt Arial; color:#667085; }} }}
 * {{ box-sizing:border-box; }} body {{ font-family: Arial, Helvetica, sans-serif; color:#182230; line-height:1.45; font-size:9.5pt; }}
 .cover {{ min-height:245mm; display:flex; flex-direction:column; justify-content:center; page-break-after:always; border-top:8px solid #0b7285; }}
 .cover h1 {{ font-size:31pt; line-height:1.08; color:#073b4c; margin:0 0 10px; }} .cover h2 {{ font-size:17pt; font-weight:normal; color:#0b7285; margin:0 0 28px; }}
@@ -137,12 +139,15 @@ blockquote {{ margin:12px 0; padding:9px 13px; border-left:4px solid #0b7285; ba
 ul {{ margin-top:4px; }} li {{ margin:3px 0; }} table {{ width:100%; border-collapse:collapse; margin:12px 0; font-size:8.2pt; page-break-inside:avoid; }} th {{ background:#073b4c; color:white; text-align:left; }} th,td {{ border:1px solid #cbd5dc; padding:5px 6px; vertical-align:top; }} tr:nth-child(even) td {{ background:#f7fafb; }}
 .code {{ white-space:pre-wrap; font:7.2pt/1.3 Consolas, monospace; background:#f5f7f8; border:1px solid #d7dee3; padding:10px; border-radius:3px; page-break-inside:avoid; }} .footnote {{ font-size:8pt; color:#52606d; }}
 </style></head><body>
-<section class="cover"><h1>Integrity Protocol</h1><h2>A Verification and Execution-Control Layer for the Autonomous Intellectual Property Economy</h2><div class="meta"><strong>Jacob S. Vickers</strong><br>Xibalba Solutions, LLC · Racine, Wisconsin<br><br><strong>Version 3.1</strong> · Markdown working draft · August 2026</div><div class="notice"><strong>Publication status.</strong> This PDF is a typeset release of the v3.1 Markdown working draft. It preserves the source document's distinction between implemented reference components, planned architecture, normative obligations, and unresolved risks. It is not a description of deployed v3 execution-firewall code.</div></section>
+<section class="cover"><h1>Integrity Protocol</h1><h2>A Verification and Execution-Control Layer for the Autonomous Intellectual Property Economy</h2><div class="meta"><strong>Jacob S. Vickers</strong><br>Xibalba Solutions, LLC · Racine, Wisconsin<br><br><strong>Version 3.2</strong> · Canonical Markdown edition · August 2026</div><div class="notice"><strong>Publication status.</strong> This PDF is a typeset release of the canonical v3.2 Markdown edition. It preserves the source document's distinction between implemented reference components, planned architecture, normative obligations, and unresolved risks. It is not a description of deployed v3 execution-firewall code.</div></section>
 <section class="toc"><h1>Contents</h1><ol>{toc}</ol></section>
 <main>{body}</main></body></html>'''
     HTML_OUT.write_text(document, encoding="utf-8")
     subprocess.run(["google-chrome", "--headless", "--no-sandbox", "--disable-gpu", f"--print-to-pdf={PDF_OUT}", str(HTML_OUT)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print(PDF_OUT)
+    import shutil
+    shutil.copy2(PDF_OUT, SPEC_PDF_OUT)
+    print(f"Generated: {PDF_OUT}")
+    print(f"Copied to: {SPEC_PDF_OUT}")
 
 if __name__ == "__main__":
     main()
